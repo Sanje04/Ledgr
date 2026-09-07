@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -m 5 http://10.0.0.68:11434/api/tags)",
+      "Bash(echo \"exit: $?\")"
+    ]
+  }
+}
