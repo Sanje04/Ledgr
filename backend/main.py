@@ -10,10 +10,14 @@ Every turn is auto-saved to MongoDB (see db.py) regardless of the LLM's behavior
 """
 
 import logging
+import os
+import time
+from collections import defaultdict, deque
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
@@ -25,6 +29,36 @@ import db
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AG-AI Chatbot Backend")
+
+MAX_MESSAGE_LENGTH = 4000  # keep in sync with ui/src/constants.ts
+
+# Off by default so local HTTP dev keeps working; set FORCE_HTTPS=true behind a
+# real TLS-terminating deployment (reverse proxy, load balancer, etc.).
+if os.getenv("FORCE_HTTPS", "false").lower() == "true":
+    app.add_middleware(HTTPSRedirectMiddleware)
+
+
+# Fixed-window rate limit per client IP, to slow down basic chat spam/flooding.
+RATE_LIMIT_MAX_REQUESTS = 20
+RATE_LIMIT_WINDOW_SECONDS = 60
+_request_log: dict[str, deque[float]] = defaultdict(deque)
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if request.url.path == "/api/chat":
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        log = _request_log[client_ip]
+        while log and now - log[0] > RATE_LIMIT_WINDOW_SECONDS:
+            log.popleft()
+        if len(log) >= RATE_LIMIT_MAX_REQUESTS:
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"error": "Too many requests. Please slow down and try again shortly."},
+            )
+        log.append(now)
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -42,7 +76,7 @@ app.add_middleware(
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
 
 
 class ChatResponse(BaseModel):
@@ -57,7 +91,9 @@ class ChatError(BaseModel):
 async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content=ChatError(error="Invalid request: 'message' must be a non-empty string.").model_dump(),
+        content=ChatError(
+            error=f"Invalid request: 'message' must be a non-empty string of at most {MAX_MESSAGE_LENGTH} characters."
+        ).model_dump(),
     )
 
 
@@ -76,7 +112,9 @@ async def chat(request: Request) -> ChatResponse | JSONResponse:
     except ValidationError:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content=ChatError(error="Invalid request: 'message' must be a non-empty string.").model_dump(),
+            content=ChatError(
+            error=f"Invalid request: 'message' must be a non-empty string of at most {MAX_MESSAGE_LENGTH} characters."
+        ).model_dump(),
         )
 
     try:
