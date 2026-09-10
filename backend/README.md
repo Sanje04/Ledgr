@@ -43,6 +43,23 @@ Error response (400) — returned when `message` is missing, not a string, or em
 { "error": "Invalid request: 'message' must be a non-empty string." }
 ```
 
+## Testing
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest
+```
+
+One test (`test_valid_message_returns_real_reply`, marked `live_llm`) calls this
+machine's local Ollama directly (`127.0.0.1:11434`, model `gemma4:latest`) instead of
+mocking it — make sure Ollama is running locally with that model pulled, or skip it:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -m "not live_llm"
+```
+
+All other tests mock both Ollama and MongoDB, so they need neither service running.
+
 ## Notes
 
 - CORS is enabled for all origins, for local dev convenience.

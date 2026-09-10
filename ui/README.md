@@ -44,6 +44,17 @@ Restart the dev server after changing `.env`. With `VITE_API_URL` unset, `src/se
 - `npm run build` — type-check and build for production
 - `npm run preview` — preview the production build locally
 - `npm run lint` — type-check only (`tsc --noEmit`)
+- `npm test` — run the vitest suite (`InputField`, `api.ts`, `storage.ts`)
+
+## Testing
+
+```bash
+npm install
+npm test
+```
+
+Uses vitest + React Testing Library with a jsdom environment. No backend or network
+access is required — `api.ts` tests stub `fetch` directly.
 
 ## Project structure
 

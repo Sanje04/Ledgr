@@ -162,7 +162,7 @@ See [`backend/specs.md`](backend/specs.md) and [`ui/specs.md`](ui/specs.md) for 
 The features above are the technical core; these are what's missing before this reads as a finished, resume-linkable project rather than a local prototype:
 
 - [ ] **Push to a public GitHub repo.** Nothing here is version-controlled yet — no repo, no commit history, no link to put on a resume. This is the highest-priority gap.
-- [ ] **Automated tests.** Zero tests currently exist. Cheapest high-value target: pytest coverage of `/api/chat`'s validation paths (missing/empty/non-string `message`, malformed JSON) and the `502` path when Ollama is down — all deterministic, no LLM call required.
+- [x] **Automated tests.** `backend/tests/` (pytest) covers `/api/chat`'s validation paths, the malformed-JSON path, the `502`-on-Ollama-down path, and one real-inference smoke test against a local Ollama model. `ui/src/**/*.test.{ts,tsx}` (vitest + React Testing Library) covers `InputField`, `api.ts`'s error handling, and `storage.ts`. Still missing: CI to run any of this automatically (see below), and frontend coverage beyond these three modules (e.g. `ChatWindow`/`MessageList` integration, `App.tsx`).
 - [ ] **One-command local run.** Three moving parts (UI, FastAPI, MongoDB) currently need to be started separately by hand; a `docker-compose.yml` would let a reviewer clone and run it without installing Python/Node/Mongo themselves.
 - [ ] **CI.** A GitHub Actions workflow running lint + the test suite on every push/PR.
 - [ ] **Screenshot or short demo GIF** in this README — the single highest-leverage addition for anyone skimming the repo rather than cloning it.
