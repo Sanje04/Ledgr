@@ -1,0 +1,22 @@
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 720px;
+  margin: 0 auto;
+  background-color: var(--color-surface);
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 600px) {
+  .app-shell {
+    max-width: 100%;
+    box-shadow: none;
+  }
+}
