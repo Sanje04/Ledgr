@@ -28,7 +28,7 @@ Build a **frontend-only** React chatbot application with:
 ## Project Structure
 
 ```
-ag-ai-ui/
+ledgr-ui/
 ├── public/
 │   └── index.html
 ├── src/

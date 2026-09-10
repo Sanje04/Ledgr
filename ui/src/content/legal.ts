@@ -4,13 +4,13 @@ export interface LegalSection {
 }
 
 // Placeholder contact — swap in a real address before this goes live.
-export const LEGAL_CONTACT_EMAIL = "privacy@ag-ai.example";
+export const LEGAL_CONTACT_EMAIL = "privacy@ledgr.example";
 
 export const PRIVACY_POLICY_SECTIONS: LegalSection[] = [
   {
     heading: "What this app stores",
     body:
-      "AG-AI stores your chat messages in your browser's localStorage so your conversation " +
+      "Ledgr stores your chat messages in your browser's localStorage so your conversation " +
       "persists across page reloads. This data stays on your device and is not sold or shared " +
       "with third parties.",
   },
@@ -44,7 +44,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     heading: "Using this app",
     body:
-      "AG-AI is a demo chatbot project. It is provided as-is, without warranty of any kind, and " +
+      "Ledgr is a demo chatbot project. It is provided as-is, without warranty of any kind, and " +
       "may be unavailable or change at any time without notice.",
   },
   {

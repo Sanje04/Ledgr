@@ -28,7 +28,7 @@ import db
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AG-AI Chatbot Backend")
+app = FastAPI(title="Ledgr Chatbot Backend")
 
 MAX_MESSAGE_LENGTH = 4000  # keep in sync with ui/src/constants.ts
 

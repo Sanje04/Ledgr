@@ -1,4 +1,4 @@
-# AG-AI Chatbot Backend
+# Ledgr Chatbot Backend
 
 Simple FastAPI backend that echoes back whatever message the user sends. Matches the
 frontend's expected contract exactly.
