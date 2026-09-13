@@ -22,3 +22,6 @@ __pycache__/
 Thumbs.db
 *.local
 *.tsbuildinfo
+
+# markdown files
+INTERVIEW_NOTES.md

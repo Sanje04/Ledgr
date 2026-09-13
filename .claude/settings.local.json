@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(curl -s -m 5 http://10.0.0.68:11434/api/tags)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(./.venv/Scripts/python.exe -m pip install -r requirements-dev.txt --quiet)",
+      "Bash(node -e ' *)",
+      "Bash(npm ls *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest -v -m \"not live_llm\")"
     ]
   }
 }
