@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./ui
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
