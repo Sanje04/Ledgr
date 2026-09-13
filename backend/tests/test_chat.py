@@ -77,3 +77,21 @@ def test_ollama_unavailable_returns_502(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert response.status_code == 502
     assert isinstance(response.json()["error"], str)
+
+
+def test_startup_survives_mongo_outage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A MongoDB outage at boot (ensure_indexes failing) must not crash the app --
+    save_turn already tolerates Mongo being down, and startup should too."""
+
+    async def failing_ensure_indexes() -> None:
+        raise Exception("mongo unreachable")
+
+    monkeypatch.setattr(db, "ensure_indexes", failing_ensure_indexes)
+    monkeypatch.setattr(agent, "OLLAMA_BASE_URL", "http://127.0.0.1:1")
+
+    with TestClient(main.app) as scoped_client:
+        response = scoped_client.post("/api/chat", json={"message": "hello"})
+
+    # A fast 502 from the deliberately-unreachable Ollama URL proves the app
+    # came up and is serving requests despite ensure_indexes() having failed.
+    assert response.status_code == 502

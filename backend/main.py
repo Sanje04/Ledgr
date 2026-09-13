@@ -63,7 +63,12 @@ async def rate_limit_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    await db.ensure_indexes()
+    # Mirrors save_turn's resilience (main.py chat()): a Mongo outage at boot
+    # must not take down the whole API, since chat itself doesn't depend on it.
+    try:
+        await db.ensure_indexes()
+    except Exception:
+        logger.exception("Failed to ensure MongoDB indexes at startup")
 
 
 # Enable CORS for local dev so the Vite frontend (different port) can call this API.

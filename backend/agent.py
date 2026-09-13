@@ -139,7 +139,10 @@ async def _call_ollama(messages: list[dict[str, Any]], tools: list[dict[str, Any
         payload["tools"] = tools
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # A cold model load (multi-GB) plus real inference can take well over
+        # 60s -- keep this at or above nginx's proxy_read_timeout (ui/nginx.conf)
+        # so the backend, not the reverse proxy, is what decides "too slow."
+        async with httpx.AsyncClient(timeout=170.0) as client:
             response = await client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
             response.raise_for_status()
     except httpx.RequestError as exc:
