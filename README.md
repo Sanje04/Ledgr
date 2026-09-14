@@ -175,15 +175,3 @@ See [`backend/specs.md`](backend/specs.md) (Phase 4) for the data model, tool co
 - [ ] Multi-turn conversation context passed to the model
 
 See [`backend/specs.md`](backend/specs.md) and [`ui/specs.md`](ui/specs.md) for the original design specs each side was built from.
-
-## Path to portfolio-ready
-
-The features above are the technical core; these are what's missing before this reads as a finished, resume-linkable project rather than a local prototype:
-
-- [ ] **Push to a public GitHub repo.** Nothing here is version-controlled yet — no repo, no commit history, no link to put on a resume. This is the highest-priority gap.
-- [x] **Automated tests.** `backend/tests/` (pytest) covers `/api/chat`'s validation paths, the malformed-JSON path, the `502`-on-Ollama-down path, and one real-inference smoke test against a local Ollama model. `ui/src/**/*.test.{ts,tsx}` (vitest + React Testing Library) covers `InputField`, `api.ts`'s error handling, and `storage.ts`. Still missing: CI to run any of this automatically (see below), and frontend coverage beyond these three modules (e.g. `ChatWindow`/`MessageList` integration, `App.tsx`).
-- [ ] **One-command local run.** Three moving parts (UI, FastAPI, MongoDB) currently need to be started separately by hand; a `docker-compose.yml` would let a reviewer clone and run it without installing Python/Node/Mongo themselves.
-- [ ] **CI.** A GitHub Actions workflow running lint + the test suite on every push/PR.
-- [ ] **Screenshot or short demo GIF** in this README — the single highest-leverage addition for anyone skimming the repo rather than cloning it.
-- [ ] **A measured number, not a claimed one.** E.g. observed p50 latency for a `llama3.1:8b` reply on your hardware. Worth including in a resume bullet only once actually measured.
-- [ ] Multi-turn conversation context and streaming responses (both currently absent from `agent.py`, which sends only the latest message with a fixed system prompt).
