@@ -1,0 +1,240 @@
+.transactions-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background-color: var(--color-bg);
+  border-left: 1px solid var(--color-border);
+  overflow-y: auto;
+  padding: 1.1rem 1.25rem;
+}
+
+.transactions-panel__label {
+  margin: 0 0 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.transactions-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.transactions-panel__header .transactions-panel__label {
+  margin-bottom: 0;
+}
+
+.transactions-panel__import-button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease;
+}
+
+.transactions-panel__import-button:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.transactions-panel__import-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.transactions-panel__import-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.transactions-panel__import-input {
+  display: none;
+}
+
+.transactions-panel__status--success {
+  color: var(--color-positive);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transactions-panel__import-button {
+    transition-property: background-color, border-color, color;
+  }
+}
+
+.transactions-panel__label--spaced {
+  margin-top: 1.5rem;
+}
+
+.transactions-panel__status {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.transactions-panel__error {
+  padding: 0.6rem 0.75rem;
+  background-color: var(--color-error-bg);
+  color: var(--color-error-text);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.transactions-panel__accounts,
+.transactions-panel__transactions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.transactions-panel__account {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  font-size: 0.88rem;
+}
+
+.transactions-panel__account-icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent-wash);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.transactions-panel__account-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.transactions-panel__account-name {
+  flex: 1 1 auto;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.transactions-panel__account-balance {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.transactions-panel__account-balance--negative {
+  color: var(--color-negative);
+}
+
+.transactions-panel__filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0 0.2rem;
+}
+
+.transactions-panel__filter-button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 0.32rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease;
+}
+
+.transactions-panel__filter-button:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.transactions-panel__filter-button:active {
+  transform: scale(0.96);
+}
+
+.transactions-panel__filter-button--active {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.transactions-panel__filter-button--active:hover {
+  color: var(--color-accent-contrast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transactions-panel__filter-button {
+    transition-property: background-color, border-color, color;
+  }
+}
+
+.transactions-panel__transaction {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  transition: background-color 140ms ease;
+}
+
+.transactions-panel__transaction:hover {
+  background-color: var(--color-surface-secondary);
+}
+
+.transactions-panel__transaction-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.transactions-panel__transaction-amount {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-positive);
+}
+
+/* Deliberate: everyday spending (negative) stays neutral ink, not red -
+   red is reserved for the account-balance warning state above. Only
+   incoming money (positive) gets the accent color, so green reads as
+   "notable" instead of the list looking alarmed by its own normal rows. */
+.transactions-panel__transaction-amount--negative {
+  color: var(--color-text);
+}
+
+.transactions-panel__transaction-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.transactions-panel__transaction-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.transactions-panel__transaction-category-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

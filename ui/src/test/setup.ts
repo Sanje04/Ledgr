@@ -43,3 +43,16 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: new MemoryStorage(),
 });
+
+// jsdom has no ResizeObserver, which recharts' ResponsiveContainer needs.
+// A no-op stub is enough -- tests don't depend on actual resize callbacks.
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+Object.defineProperty(globalThis, "ResizeObserver", {
+  configurable: true,
+  value: ResizeObserverStub,
+});

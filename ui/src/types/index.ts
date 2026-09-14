@@ -20,3 +20,35 @@ export interface ApiResponse {
 export interface ApiError {
   error: string;
 }
+
+export type AccountType = "checking" | "savings" | "credit_card";
+
+export interface Account {
+  id: string;
+  name: string;
+  type: AccountType;
+  current_balance: number;
+}
+
+export interface Transaction {
+  id: string;
+  account_id: string;
+  account_name: string;
+  account_type: AccountType;
+  date: string;
+  amount: number;
+  merchant: string;
+  description: string;
+  category: string;
+  running_balance: number;
+}
+
+export interface TransactionsResponse {
+  accounts: Account[];
+  transactions: Transaction[];
+}
+
+export interface ImportResult {
+  imported_count: number;
+  accounts: Account[];
+}

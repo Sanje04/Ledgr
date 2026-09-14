@@ -8,15 +8,39 @@
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
-  max-width: 720px;
+  max-width: 1100px;
   margin: 0 auto;
   background-color: var(--color-surface);
-  box-shadow: 0 0 24px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-lg);
+}
+
+.main-layout {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.main-layout > .chat-window {
+  flex: 1 1 60%;
+  min-width: 0;
+}
+
+.main-layout > .transactions-panel {
+  flex: 0 0 360px;
 }
 
 @media (max-width: 600px) {
   .app-shell {
     max-width: 100%;
     box-shadow: none;
+  }
+
+  .main-layout {
+    flex-direction: column;
+  }
+
+  .main-layout > .transactions-panel {
+    flex: 0 0 auto;
+    max-height: 65vh;
   }
 }
