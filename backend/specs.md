@@ -217,3 +217,47 @@ This mirrors Ollama/OpenAI-style function calling and keeps the interesting beha
 5. ✅ Define the tool schemas and wire them into the Ollama request in `agent.py`; create the `messages.content` text index at FastAPI startup
 6. ✅ Implement the tool-execution loop (model requests a tool call → agent runs it against MongoDB → result fed back to the model) — capped at one tool call per turn, confirmation-gated delete, DB errors surfaced as tool results rather than 502s
 7. ⏳ Update the frontend to load conversation history from the backend instead of `localStorage` (may require new REST endpoints, see open questions) — **not part of this pass**
+
+---
+
+## Phase 4: Mock Bank Transactions & Financial Tool-Calling (implemented)
+
+### Overview
+Second, independent domain added to the same agent alongside conversation history: mock bank accounts/transactions, reasoned over via tool-calling in the same style as Phase 3 (`list_accounts`/`search_transactions`/`get_spending_summary` joining `list_conversations`/`search_history`/`delete_conversation` in one `TOOLS` list and one `SYSTEM_PROMPT`). No real bank integration exists yet — data is a deterministic, seeded mock dataset, chosen so the tool-calling pattern and aggregation logic can be built and demoed now, with real bank data able to slot in later behind the same `db.py` function signatures.
+
+### Data model
+Two new collections, following the same "denormalize to avoid a join" idiom `conversations.messages` already uses:
+
+- **`accounts`** — exactly 3 fixed documents (`_id` ∈ `checking`/`savings`/`credit_card`, doubling as the tool-arg enum value): `{_id, name, type, current_balance}`.
+- **`transactions`** — ~100+ documents: `{_id, account_id, account_name, account_type, date, amount, merchant, description, category, running_balance}`. Account name/type are denormalized onto each transaction for the common read path (list/filter transactions without a join back to `accounts`).
+
+**Sign convention:** `amount`/`running_balance` mean "this account's balance moved by this much." For Checking/Savings that's literal cash; for Credit Card, positive reduces debt owed and negative increases it, so its balance trends *negative* as debt grows (e.g. `-450.00` = "you owe $450"). A card payment from Checking is a symmetric `Transfer` pair: `-300` on Checking, `+300` on Credit Card.
+
+**Fixed categories (11):** `Groceries, Rent, Dining, Transport, Entertainment, Utilities, Income, Shopping, Healthcare, Transfer, Other` — see `db.CATEGORIES`.
+
+### Mock data generation
+The mock dataset's source of truth is two checked-in, human-editable CSV fixtures, not code:
+
+- `backend/data/accounts.csv` — `account_id, name, type, opening_balance` (one row per account, 3 rows).
+- `backend/data/transactions.csv` — `account_id, days_ago, category, merchant, description, amount` (~107 rows). Dates are stored as **`days_ago`, not absolute dates**, specifically so the checked-in file doesn't go stale: every time the seed script runs, `days_ago` is resolved against *that run's* "today," so the ledger always reads as "the last ~6 months up to now" — relative spacing between transactions (biweekly paychecks, monthly rent, etc.) is preserved, only the anchor moves. Editing either CSV by hand (e.g. adding a row, tweaking an amount) and re-seeding is the intended way to change the mock data now — there's no RNG to reason about.
+
+`backend/scripts/seed_transactions.py` loads both CSVs, resolves `days_ago` to absolute dates against the run's current date, sorts each account's transactions chronologically, walks them forward from `opening_balance` to compute `running_balance` per transaction and `current_balance` per account (same calculation as before — only the data's origin changed, not this logic), then loads the result into MongoDB. Idempotent (clears both collections before inserting, so re-running is always safe). Run manually (`cd backend && .\.venv\Scripts\python.exe scripts\seed_transactions.py`) — **not** copied into `backend/Dockerfile`, which deliberately only ships `main.py agent.py db.py`; this is a one-off dev/demo step, not a runtime dependency (the CSVs in `backend/data/` aren't shipped either, for the same reason). `db.ensure_indexes()` (already called at FastAPI startup) additionally creates `transactions` indexes on `(account_id, date)` and `category`.
+
+MongoDB remains the only store the agent's tools and `GET /api/transactions` read from — the CSVs are a seed-time input, not a runtime data path. Re-verified after this change: reseeding from the CSVs reproduced the exact same balances as the original RNG-generated data (Checking $24,960.16, Credit Card -$1,920.54, Savings $15,057.34), since the CSVs were themselves exported from that already-seeded, already-verified dataset rather than redrawn from scratch.
+
+### Tool contracts
+- `list_accounts()` → all 3 accounts with `current_balance`. Answers balance questions directly — no separate balance tool.
+- `search_transactions(account?, category?, merchant?, start_date?, end_date?, min_amount?, max_amount?, limit=20)` → raw matching transactions, most recent first. For lookups only ("show me my Amazon purchases") — its description explicitly tells the model not to use it for totals.
+- `get_spending_summary(category?, account?, start_date?, end_date?)` → **computes** total spend and a per-category breakdown in Python over Mongo-filtered outflow (`amount < 0`) transactions — never hands raw rows to the model to add up. **Excludes `Transfer` and `Income` by default** (unless a specific category is requested) so moving money between your own accounts, or receiving it, isn't counted as spending — verified live: a "how much have I spent in total" query returned exactly the DB-computed total ($13,860.38 in one verification run), matching `get_spending_summary()` called directly and excluding the Transfer/Income legs of the ledger.
+
+Aggregation is done Python-side rather than via a Mongo `$group` pipeline: at this data volume there's no performance case for it, it mirrors `search_history`'s existing "Mongo narrows, Python finishes" style, and it's far easier to test hermetically (see `tests/test_db_transactions.py`'s `FakeCollection`, which understands only the small operator set `db.py` actually emits — not a general MongoDB emulator).
+
+### Agent changes
+- `SYSTEM_PROMPT` now covers both domains (conversation history and the 3 accounts/categories) in one string, and `run()` interpolates the current UTC date into the system message **at call time** (`f"{SYSTEM_PROMPT}\n\nToday's date is {today}..."`) so relative-date questions ("this month", "last week") resolve correctly — previously nothing told the model what day it was. `SYSTEM_PROMPT` itself stays the stable, docs-referenced persona constant; only the date suffix is computed per-call.
+- **One-tool-per-turn cap is unchanged, explicitly accepted for this domain too.** A compound question ("what's my balance and how much did I spend on dining") only gets one half answered per turn, identical to today's behavior with the conversation-history tools — not something this phase fixes.
+
+### New read-only endpoint: `GET /api/transactions`
+Added to `main.py` for the frontend's transactions panel **display only** — a deliberate, scoped exception to the "no REST CRUD" stance, which is specific to conversation history (see CLAUDE.md); it is unrelated to that anti-pattern and doesn't reopen it. The agent itself still only reads this data via tool-calling, never via this endpoint. No request body/query params — the ~100+ row volume is small enough to return in one shot (internally calls `search_transactions(limit=500)`, a display cap comfortably above the seed's ~107 rows, not pagination — see the comment at that call site if the seed volume grows). Returns `{accounts, transactions}`; a Mongo error returns `503` with the existing `{error: string}` shape rather than an unhandled 500. Not covered by the `/api/chat`-only rate limiter (cheap read, no LLM cost).
+
+### Verified behavior (2026-09-13)
+Exercised live end-to-end against local MongoDB and the configured Ollama model (`gemma4:latest`): a balance question ("what's my checking balance?") correctly called `list_accounts` and returned the exact seeded balance; a category-spending question ("how much have I spent on groceries in total?") correctly called `get_spending_summary` and returned the exact computed figure ($448.51, 5 transactions) rather than a model-estimated one; a whole-ledger spending question correctly excluded all `Transfer`/`Income` legs, matching `get_spending_summary()` called directly; the pre-existing `list_conversations` tool still worked in the same session, confirming the dual-domain system prompt didn't regress Phase 3. `GET /api/transactions` and the frontend `TransactionsPanel` were verified in a real (headless) browser: 3 accounts and all ~107 transactions rendered, and the panel correctly stacks below chat instead of beside it under the existing 600px mobile breakpoint, with no console errors.

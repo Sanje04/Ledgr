@@ -247,3 +247,39 @@ ledgr-ui/
 - ⏳ Get approval to proceed with development
 - ⏳ Build the frontend app
 - ⏳ Connect to backend API (when endpoint is ready)
+
+---
+
+## Addendum: Transactions panel (backend/specs.md Phase 4)
+
+Alongside the original chat-only layout above, the app now also renders a **read-only transactions panel** next to `ChatWindow` (a `.main-layout` flex row in `App.tsx`/`App.css`, stacking vertically under the existing 600px mobile breakpoint) — display only, backed by a new `GET /api/transactions` endpoint, independent of the chat agent's own tool-calling access to the same mock data.
+
+- `src/components/TransactionsPanel.tsx` + `src/styles/TransactionsPanel.css` — self-contained (own state/effects, no props, same shape as `ChatWindow`): fetches on mount, renders the 3 mock accounts with balances and a scrollable transaction list (merchant, amount, date, category, account), with loading/error states styled consistently with `ChatWindow`'s existing error UI.
+- `src/services/transactions.ts` — `fetchTransactions(): Promise<TransactionsResponse>`, mirroring `api.ts`'s mock-mode fallback: returns hardcoded mock data when `VITE_TRANSACTIONS_API_URL` is unset, otherwise fetches the real endpoint with the same error-handling shape as `sendMessageToRealApi`.
+- `src/types/index.ts` gains `Account`, `Transaction`, `TransactionsResponse` — fields kept snake_case to match the wire JSON exactly, consistent with how `ApiRequest`/`ApiResponse` already pass backend JSON through untransformed.
+- New env var `VITE_TRANSACTIONS_API_URL` (`ui/.env.example`), set alongside `VITE_API_URL` — leaving only one of the two set means chat and the panel disagree about whether a real backend is configured.
+
+### Account filter + category spending chart
+
+`TransactionsPanel` also renders an account filter (`All`/`Checking`/`Savings`/`Credit Card`) and a donut chart of spending by category over the trailing 30 days, both computed client-side from the already-fetched `GET /api/transactions` payload — no new backend endpoint.
+
+- `src/utils/spending.ts` — pure `getCategorySpendingLastNDays(transactions, days, referenceDate?)`, unit-tested independent of any chart library. Excludes `Transfer`/`Income` (mirrors `backend/db.py`'s `get_spending_summary` exclusion), folds any category outside a fixed 8-category list into `Other`, and returns results in a **fixed category order — never sorted by amount**, so switching the account filter doesn't re-shuffle which color means what.
+- `src/utils/categoryColors.ts` — a fixed category→hex mapping (the dataviz skill's validated default categorical palette) plus a muted gray reserved for `Other`, which is deliberately not a 9th categorical hue.
+- `src/components/CategorySpendingChart.tsx` — a Recharts (`recharts`, new dependency) donut chart with a center total, a custom tooltip, and a plain-HTML legend that doubles as the required "relief" for palette slots below 3:1 contrast (every category is identified by text, never color alone).
+- The account filter is **shared**: selecting an account filters both the transaction list and the chart to that account; `All` combines everything.
+
+---
+
+## Addendum: Design system pass (fintech dashboard visual redesign + dark mode)
+
+The original chat UI (WhatsApp-style green header/bubbles, single light theme) was redesigned into a neutral "fintech dashboard" look with light/dark theme support, following `skills/emil-design-eng_SKILL.md` and `skills/animate_SKILL.md` (project-local design/animation philosophy docs, not part of the standard skill set) for polish and motion decisions.
+
+**Design tokens (`src/styles/index.css`):** a full light/dark token system — surfaces (`--color-bg`, `--color-surface`, `--color-surface-secondary`), ink (`--color-text`, `--color-text-secondary`, `--color-muted`), one accent (`--color-accent` + hover/contrast/wash variants), semantic positive/negative colors, elevation (`--shadow-sm/md/lg`), radius (`--radius-sm/md/lg/pill`), and motion easings (`--ease-out`, `--ease-in-out` — the strong custom curves the animate skill calls for, not the weak CSS built-ins). Every component was migrated off hardcoded hex values onto these tokens so dark mode "just works" everywhere, including the category chart's colors (`--cat-*` custom properties, referenced via `var()` from `utils/categoryColors.ts` so the same `colorForCategory()` call resolves to the right hue in either theme with no theme-detection logic in JS).
+
+**Theme mechanism:** `utils/theme.ts` (get/set stored theme in `localStorage` under `ledgr-theme`, resolve effective theme against `prefers-color-scheme` when nothing is stored) + `components/ThemeToggle.tsx` (sun/moon crossfade button, in `ChatWindow`'s header). An inline script in `index.html`'s `<head>` applies a stored theme before first paint to avoid a flash of the wrong theme. CSS follows the standard dual-scope pattern: `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {...} }` for the OS-level default, plus `:root[data-theme="dark"] {...}` so an explicit toggle wins either direction.
+
+**Chat modernized** (`MessageItem.tsx`/`.css`, `MessageList.tsx`): moved off WhatsApp-style bubbles to a minimal AI-chat layout — a bot avatar badge, assistant replies in a bordered `--color-surface-secondary` card, user messages right-aligned in an accent-wash tint, no speech-bubble tails. Messages animate in with `@starting-style` (opacity + `translateY(6px)` → identity, `ease-out`, 220ms) per the animate skill's preferred tool for "entry animation on mount, no JS state" — reduced-motion keeps the opacity fade and drops the translate.
+
+**Transactions panel restyled** (`TransactionsPanel.tsx`/`.css`): accounts as bordered/shadowed cards with a per-type icon (bank/trending-up/card), section headings as small uppercase muted labels (dashboard-style, not large headings), transaction rows get a hover tint and a category-color dot (reusing the chart's `colorForCategory`) tying the list back to the chart. Mobile's `.transactions-panel` height cap was raised from 40vh to 65vh in the same pass — the account filter + chart + legend had made the previous cap too cramped to reach the transaction list without excessive scrolling (a gap flagged during the Phase 4 mobile check, fixed here rather than deferred).
+
+**Motion rules applied throughout** (per both skill docs): `transform`/`opacity` only, never `scale(0)` (start at `scale(0.9)`+ or higher), `ease-out` on entrances, custom cubic-bezier curves not builtin `ease`, durations under 300ms for UI (buttons 160ms, toggles/tooltips ~200ms, modal 200ms), `:active { transform: scale(0.93–0.97) }` press feedback on every button (send, filter pills, theme toggle, cookie-consent accept, modal close, retry), `@media (prefers-reduced-motion: reduce)` shipped alongside every new animation rather than as a follow-up, and CSS transitions/`@starting-style` (not keyframes) for anything that can be interrupted or retriggered.

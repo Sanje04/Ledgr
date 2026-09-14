@@ -12,6 +12,7 @@ Most chatbot demos wire a frontend straight to a hosted API (OpenAI, Anthropic, 
 - Integrating a self-hosted LLM (Ollama) running on separate hardware from the app server
 - Durable, deterministic persistence of every conversation turn to MongoDB, independent of the LLM
 - Giving the agent tool-calling access to that database, so *it* decides when to query/search/delete history rather than the backend exposing a conventional REST CRUD API for it — see [Agent tool-calling over conversation history](#agent-tool-calling-over-conversation-history) below
+- A second, independent domain the same agent reasons about: mock bank accounts/transactions, queried and summed the same tool-calling way — see [Mock bank transactions](#mock-bank-transactions) below
 
 The centerpiece is that last point: not a chatbot with a database bolted on, but an agent that reasons about *when* to act on one.
 
@@ -21,20 +22,23 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 ┌─────────────────────┐        POST /api/chat        ┌──────────────────────┐        HTTP        ┌───────────────────────┐
 │   React + TS UI      │ ─────────────────────────────▶│  FastAPI Backend      │ ──────────────────▶│  Ollama (remote host) │
 │   (Vite, localStorage)│◀───────────────────────────── │  (validation, agent)  │◀────────────────────│  local LLM inference   │
-└─────────────────────┘   { response: "..." }         └──────────┬───────────┘   model output      └───────────────────────┘
-                                                                   │
+│   + TransactionsPanel │        GET /api/transactions  │                       │   model output      └───────────────────────┘
+└─────────────────────┘◀───────────────────────────── └──────────┬───────────┘
+                            { accounts, transactions }             │
                                                          auto-save every turn (deterministic)
                                                                    ▼
                                                         ┌──────────────────────┐
                                                         │   MongoDB (local)     │◀──── tool-calling access (agent-driven)
-                                                        │  conversation store   │
+                                                        │  conversations,        │
+                                                        │  accounts, transactions│
                                                         └──────────────────────┘
 ```
 
 - **Frontend and backend communicate over one fixed JSON contract**, so either side can be rebuilt independently.
 - **The backend talks to Ollama over the network**, not in-process — the model can run on a separate, more powerful machine (e.g. one with a GPU) while the backend and UI run anywhere.
 - **Every turn is auto-saved to MongoDB** by the backend, deterministically, regardless of what the model does — this always happens and doesn't depend on the LLM.
-- **The agent has tool-calling access** to that same MongoDB store (list/search/delete history) so the model itself decides when to act on it — see [Agent tool-calling over conversation history](#agent-tool-calling-over-conversation-history).
+- **The agent has tool-calling access** to that same MongoDB store (list/search/delete history, plus mock account/transaction lookups) so the model itself decides when to act on it — see [Agent tool-calling over conversation history](#agent-tool-calling-over-conversation-history) and [Mock bank transactions](#mock-bank-transactions).
+- **`GET /api/transactions`** is a separate, read-only path used only by the frontend's transactions panel for display — the agent never calls it; the agent's own access to the same data is tool-calling only.
 
 ## Tech stack
 
@@ -45,16 +49,17 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 | Agent     | Python, `httpx` async client calling Ollama's `/api/chat` |
 | LLM       | Ollama, running locally/on a LAN host — no cloud API costs |
 | Persistence (client) | Browser `localStorage` — what the UI reads from today |
-| Persistence (server, current) | MongoDB (local instance), via Motor — auto-saved on every turn; also readable/searchable/deletable by the agent's tools, but not yet read back by the UI |
+| Persistence (server, current) | MongoDB (local instance), via Motor — conversations auto-saved on every turn and readable/searchable/deletable by the agent's tools (not yet read back by the UI); a separate seeded `accounts`/`transactions` mock dataset readable by the agent's tools and, read-only, by the UI's transactions panel |
 | Agent tool-calling | Ollama `tools` field, two-call loop in `agent.py` — see [Agent tool-calling over conversation history](#agent-tool-calling-over-conversation-history) |
 
 ## Features
 
-- Chat interface with message history, loading states, and error handling
+- Chat interface with message history, loading states, and error handling — a neutral fintech-dashboard visual design with light/dark theme support (system-aware, manually toggleable)
 - Chat history persisted client-side in `localStorage` and restored on page load
 - Backend agent that forwards messages to a local LLM (Ollama) and returns real model-generated replies, with a `502` returned if Ollama is unreachable
 - Every `/api/chat` turn durably auto-saved to MongoDB by the backend (async, via Motor), independent of `localStorage` and independent of the model
 - Agent tool-calling over that same MongoDB store — the model can list, full-text search, and (with explicit confirmation) delete conversation history in natural language, via `list_conversations`/`search_history`/`delete_conversation`
+- A second, mock bank accounts/transactions domain the same agent can reason about — `list_accounts`/`search_transactions`/`get_spending_summary`, the last of which computes real totals server-side rather than letting the model guess — plus a read-only `GET /api/transactions` endpoint powering a transactions panel in the UI, alongside chat, with an account filter (Checking/Savings/Credit Card/All) and a category-spending donut chart for the trailing 30 days
 - Strictly-typed API contract shared between frontend and backend
 - Backend request validation with descriptive 400 errors on malformed input
 - Frontend works standalone with a built-in mock bot when no backend is configured
@@ -66,15 +71,17 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 ledgr/
 ├── ui/                    React + TypeScript frontend (Vite)
 │   ├── src/
-│   │   ├── components/    ChatWindow, MessageList, MessageItem, InputField
-│   │   ├── services/      api.ts — backend HTTP client (with mock-bot fallback)
+│   │   ├── components/    ChatWindow, MessageList, MessageItem, InputField, TransactionsPanel
+│   │   ├── services/      api.ts (chat), transactions.ts (transactions) — HTTP clients with mock fallbacks
 │   │   ├── utils/         localStorage helpers
 │   │   └── types/         shared TypeScript interfaces
 │   └── README.md
 └── backend/               FastAPI backend
-    ├── main.py            POST /api/chat route + request validation
-    ├── agent.py           Calls the local LLM (Ollama) and returns its reply
-    ├── db.py              Motor client + auto-save of each turn to MongoDB
+    ├── main.py            POST /api/chat + GET /api/transactions routes, request validation
+    ├── agent.py           Calls the local LLM (Ollama), tool-calling loop, returns its reply
+    ├── db.py              Motor client + auto-save of each turn + mock account/transaction queries
+    ├── data/               accounts.csv, transactions.csv — checked-in, human-editable mock data source
+    ├── scripts/           seed_transactions.py — loads data/*.csv into MongoDB (not run by the app itself)
     ├── requirements.txt
     └── README.md
 ```
@@ -137,6 +144,17 @@ MongoDB persistence is live and, as of this pass, the **agent itself** has tool-
 
 This is a deliberate choice over a plain REST CRUD API: it demonstrates the agentic tool-use pattern (model reasoning about *when* to query/mutate a database) rather than just wiring a database behind a fixed set of endpoints. See [`backend/specs.md`](backend/specs.md) (Phase 3) for the detailed design, verification notes, and known behavior quirks (e.g. the model is occasionally tool-happy on messages that don't need a tool).
 
+## Mock bank transactions
+
+A second, independent domain the same agent reasons about, in the same tool-calling style as conversation history above — no real bank integration yet, but a seeded mock dataset (3 accounts: Checking, Savings, Credit Card; ~100+ transactions over 6 months) so the pattern can be built and demoed now:
+
+- **Agent tools (LLM-driven):** `list_accounts` (balances), `search_transactions` (filtered lookups by account/category/merchant/date/amount), and `get_spending_summary`, which **computes** totals and a category breakdown server-side rather than handing the model raw rows to add up — and excludes transfers between the user's own accounts and income from spending totals by default, so paying off a credit card doesn't get counted as "spending."
+- **Storage:** two new MongoDB collections, `accounts` (3 fixed documents) and `transactions` (~100+ documents), loaded by a one-off, idempotent script (`backend/scripts/seed_transactions.py`) from two checked-in, human-editable CSV fixtures (`backend/data/accounts.csv`, `backend/data/transactions.csv`) — not part of the running app. Transaction dates in the CSV are relative (`days_ago`), so the data always reads as "the last ~6 months" no matter when you seed.
+- **`GET /api/transactions`:** a read-only endpoint, separate from the tool-calling path above, used only by the frontend's transactions panel to display the same data alongside chat. The agent itself never calls this endpoint — its access is tool-calling only, matching the philosophy above.
+- Both domains share one `SYSTEM_PROMPT` and one tool-calling loop (still capped at one tool call per turn — see `backend/specs.md` Phase 4): the same assistant handles "what did we talk about yesterday?" and "how much did I spend on groceries?" in one chat.
+
+See [`backend/specs.md`](backend/specs.md) (Phase 4) for the data model, tool contracts, and verification notes.
+
 ## What this project demonstrates
 
 - End-to-end ownership of a stable API contract across an independently-typed frontend and backend
@@ -152,6 +170,7 @@ This is a deliberate choice over a plain REST CRUD API: it demonstrates the agen
 - [x] Backend agent layer that calls a local LLM served by Ollama on a separate machine
 - [x] MongoDB-backed conversation storage (auto-save every turn)
 - [x] Agent tool-calling for history operations (list/search/delete conversations)
+- [x] Mock bank accounts/transactions domain with agent tool-calling (list/search/summarize) and a read-only transactions panel in the UI
 - [ ] Frontend updated to load history from the backend instead of `localStorage`
 - [ ] Multi-turn conversation context passed to the model
 
