@@ -1,0 +1,4 @@
+account_id,name,type,opening_balance
+checking,Checking,checking,3500.0
+credit_card,Credit Card,credit_card,0.0
+savings,Savings,savings,12000.0

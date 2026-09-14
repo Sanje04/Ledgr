@@ -3,18 +3,27 @@ Agent that sends a user message to a local LLM served by Ollama and returns its 
 
 Ollama may be running on a different machine on the network (see OLLAMA_BASE_URL).
 
-The agent also gives the model tool-calling access to conversation history in MongoDB
-(list_conversations, search_history, delete_conversation — see db.py and specs.md
-Phase 3). This is a two-call loop capped at one tool round-trip per turn:
+The agent gives the model tool-calling access to two independent domains in MongoDB:
+  - Conversation history (list_conversations, search_history, delete_conversation —
+    see db.py and specs.md Phase 3).
+  - Mock bank accounts/transactions (list_accounts, search_transactions,
+    get_spending_summary — see db.py and specs.md Phase 4).
+
+Both domains share one tool-calling loop, capped at one tool round-trip per turn:
   1. Call Ollama with the message + tool schemas. If it doesn't request a tool, return
      its content directly.
   2. Otherwise execute the first requested tool against MongoDB, send the result back
      as a "tool" message, and make a second call (no tools this time) so the model
      composes the final natural-language reply.
+This cap is deliberate, not an oversight: a question needing two tool calls (e.g.
+"what's my balance and how much did I spend on dining") only gets one half answered
+per turn, same as today's behavior with the conversation-history tools. Don't make
+this recursive without re-reading specs.md Phase 3/4.
 """
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -25,11 +34,18 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
 
 SYSTEM_PROMPT = (
-    "You are a helpful assistant. You have tools to list, search, and delete the "
-    "user's saved conversation history — use them when the user asks about past "
-    "conversations or wants history deleted. Only call delete_conversation when the "
-    "user has clearly confirmed they want their history deleted; otherwise ask them "
-    "to confirm first."
+    "You are a helpful assistant with two sets of tools. First, tools to list, "
+    "search, and delete the user's saved conversation history — use them when the "
+    "user asks about past conversations or wants history deleted. Only call "
+    "delete_conversation when the user has clearly confirmed they want their "
+    "history deleted; otherwise ask them to confirm first. Second, tools over the "
+    "user's mock bank data across three accounts (Checking, Savings, Credit Card): "
+    "list_accounts for balances, search_transactions for specific transaction "
+    "lookups, and get_spending_summary for any total/sum question. Categories are: "
+    f"{', '.join(db.CATEGORIES)}. Always use get_spending_summary for totals — "
+    "never add up individual transaction amounts yourself. You can only call one "
+    "tool per turn, so if a question needs two lookups, answer the first and ask "
+    "the user to follow up for the second."
 )
 
 DELETE_INTENT_WORDS = ("delete", "remove", "clear", "wipe")
@@ -89,6 +105,109 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_accounts",
+            "description": (
+                "List the user's financial accounts (Checking, Savings, Credit Card) "
+                "with their current balances. Use this for balance questions, e.g. "
+                "'what's my checking balance?' or 'how much do I have total?'."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_transactions",
+            "description": (
+                "Look up individual transactions, optionally filtered by account, "
+                "category, merchant, date range, or amount range. Use this for "
+                "specific lookups, e.g. 'show me transactions from Amazon' or "
+                "'what did I buy last week'. Do NOT use this to compute totals — "
+                "use get_spending_summary for that."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account": {
+                        "type": "string",
+                        "enum": db.ACCOUNT_IDS,
+                        "description": "Restrict results to this account.",
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": db.CATEGORIES,
+                        "description": "Restrict results to this category.",
+                    },
+                    "merchant": {
+                        "type": "string",
+                        "description": "Filter by merchant name (partial match), e.g. 'Amazon'.",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Only transactions on/after this date (YYYY-MM-DD).",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Only transactions on/before this date (YYYY-MM-DD).",
+                    },
+                    "min_amount": {
+                        "type": "number",
+                        "description": "Only transactions with amount >= this value.",
+                    },
+                    "max_amount": {
+                        "type": "number",
+                        "description": "Only transactions with amount <= this value.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of transactions to return (default 20).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_spending_summary",
+            "description": (
+                "Compute total spending and a category breakdown, optionally "
+                "filtered by category, account, or date range. Always use this for "
+                "questions asking for a total/sum — e.g. 'how much did I spend on "
+                "groceries in August' — rather than adding up individual "
+                "transactions yourself. Excludes transfers between the user's own "
+                "accounts and income by default."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": db.CATEGORIES,
+                        "description": "Restrict to this category.",
+                    },
+                    "account": {
+                        "type": "string",
+                        "enum": db.ACCOUNT_IDS,
+                        "description": "Restrict to this account.",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Only spending on/after this date (YYYY-MM-DD).",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Only spending on/before this date (YYYY-MM-DD).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -124,6 +243,28 @@ async def _execute_tool(name: str, arguments: dict[str, Any], user_message: str)
                     ),
                 }
             return await db.delete_conversation()
+        if name == "list_accounts":
+            return {"accounts": await db.list_accounts()}
+        if name == "search_transactions":
+            return {
+                "transactions": await db.search_transactions(
+                    account=arguments.get("account"),
+                    category=arguments.get("category"),
+                    merchant=arguments.get("merchant"),
+                    start_date=arguments.get("start_date"),
+                    end_date=arguments.get("end_date"),
+                    min_amount=arguments.get("min_amount"),
+                    max_amount=arguments.get("max_amount"),
+                    limit=arguments.get("limit") or 20,
+                )
+            }
+        if name == "get_spending_summary":
+            return await db.get_spending_summary(
+                category=arguments.get("category"),
+                account=arguments.get("account"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+            )
         return {"error": f"Unknown tool: {name}"}
     except Exception as exc:
         return {"error": f"Database error while executing {name}: {exc}"}
@@ -154,8 +295,16 @@ async def _call_ollama(messages: list[dict[str, Any]], tools: list[dict[str, Any
 
 
 async def run(message: str) -> str:
+    # The agent is single-turn (see specs.md roadmap) and SYSTEM_PROMPT is a
+    # static constant, so nothing else tells the model what day it is --
+    # required for it to resolve relative dates ("this month", "last week")
+    # in transaction questions. Interpolated per call, not baked into the
+    # constant, so SYSTEM_PROMPT stays the stable, docs-referenced persona text.
+    today = datetime.now(timezone.utc).date().isoformat()
+    system_content = f"{SYSTEM_PROMPT}\n\nToday's date is {today}. Resolve relative dates (e.g. \"this month\", \"last week\") against this."
+
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": message},
     ]
 

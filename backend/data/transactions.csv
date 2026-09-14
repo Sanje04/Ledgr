@@ -1,0 +1,108 @@
+account_id,days_ago,category,merchant,description,amount
+credit_card,1,Healthcare,Urgent Care Clinic,Purchase at Urgent Care Clinic,-188.6
+savings,2,Income,Bank Interest,Interest earned,9.24
+checking,2,Healthcare,CVS Pharmacy,CVS Pharmacy purchase,-96.07
+credit_card,6,Shopping,Amazon,Purchase at Amazon,-184.37
+checking,12,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,14,Transfer,Checking Payment Received,Payment received,300.0
+checking,15,Transfer,Credit Card Payment,Payment to Credit Card,-300.0
+checking,20,Transfer,Savings Transfer,Transfer to Savings,-500.0
+savings,20,Transfer,Checking Transfer,Transfer from Checking,500.0
+credit_card,25,Transport,City Parking,Purchase at City Parking,-23.92
+credit_card,25,Healthcare,CVS Pharmacy,Purchase at CVS Pharmacy,-134.3
+checking,25,Utilities,City Power & Water,Utility bill,-130.6
+checking,26,Other,USPS,USPS purchase,-67.61
+checking,26,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,27,Shopping,Amazon,Purchase at Amazon,-91.18
+credit_card,28,Healthcare,Urgent Care Clinic,Purchase at Urgent Care Clinic,-31.43
+checking,29,Rent,Sunset Apartments,Monthly rent,-1400.0
+credit_card,30,Transport,Shell,Purchase at Shell,-48.77
+credit_card,31,Shopping,IKEA,Purchase at IKEA,-108.86
+savings,32,Income,Bank Interest,Interest earned,9.31
+credit_card,33,Healthcare,Dental Associates,Purchase at Dental Associates,-105.08
+checking,39,Other,DMV,DMV purchase,-72.77
+checking,40,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,42,Transport,Chevron,Purchase at Chevron,-76.74
+credit_card,43,Dining,Pizza Palace,Purchase at Pizza Palace,-21.66
+credit_card,44,Transfer,Checking Payment Received,Payment received,300.0
+checking,45,Transfer,Credit Card Payment,Payment to Credit Card,-300.0
+savings,50,Transfer,Checking Transfer,Transfer from Checking,500.0
+credit_card,50,Dining,Local Diner,Purchase at Local Diner,-33.66
+checking,50,Transfer,Savings Transfer,Transfer to Savings,-500.0
+checking,54,Income,Employer Payroll,Paycheck deposit,2800.0
+checking,55,Utilities,City Power & Water,Utility bill,-134.19
+checking,59,Rent,Sunset Apartments,Monthly rent,-1400.0
+credit_card,61,Entertainment,Bowling Alley,Purchase at Bowling Alley,-57.62
+savings,62,Income,Bank Interest,Interest earned,5.97
+checking,63,Healthcare,Dental Associates,Dental Associates purchase,-116.52
+credit_card,64,Entertainment,Steam,Purchase at Steam,-67.21
+checking,66,Other,DMV,DMV purchase,-126.07
+checking,68,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,68,Entertainment,Steam,Purchase at Steam,-90.97
+checking,72,Healthcare,Dental Associates,Dental Associates purchase,-25.72
+credit_card,74,Transfer,Checking Payment Received,Payment received,300.0
+checking,75,Transfer,Credit Card Payment,Payment to Credit Card,-300.0
+checking,80,Transfer,Savings Transfer,Transfer to Savings,-500.0
+savings,80,Transfer,Checking Transfer,Transfer from Checking,500.0
+checking,82,Income,Employer Payroll,Paycheck deposit,2800.0
+checking,85,Utilities,City Power & Water,Utility bill,-103.39
+credit_card,86,Transport,Chevron,Purchase at Chevron,-34.87
+credit_card,88,Healthcare,Dental Associates,Purchase at Dental Associates,-123.92
+credit_card,88,Groceries,Whole Foods,Purchase at Whole Foods,-107.87
+checking,89,Rent,Sunset Apartments,Monthly rent,-1400.0
+savings,92,Income,Bank Interest,Interest earned,6.9
+checking,96,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,104,Transfer,Checking Payment Received,Payment received,300.0
+checking,105,Transfer,Credit Card Payment,Payment to Credit Card,-300.0
+credit_card,105,Transport,Shell,Purchase at Shell,-40.43
+checking,110,Transfer,Savings Transfer,Transfer to Savings,-500.0
+checking,110,Income,Employer Payroll,Paycheck deposit,2800.0
+savings,110,Transfer,Checking Transfer,Transfer from Checking,500.0
+credit_card,112,Healthcare,Dental Associates,Purchase at Dental Associates,-158.35
+credit_card,113,Entertainment,Netflix,Purchase at Netflix,-97.47
+credit_card,113,Shopping,Target,Purchase at Target,-139.0
+checking,115,Utilities,City Power & Water,Utility bill,-106.5
+credit_card,117,Entertainment,Netflix,Purchase at Netflix,-30.22
+checking,119,Rent,Sunset Apartments,Monthly rent,-1400.0
+checking,121,Healthcare,CVS Pharmacy,CVS Pharmacy purchase,-110.96
+credit_card,121,Transport,Shell,Purchase at Shell,-70.65
+credit_card,122,Healthcare,CVS Pharmacy,Purchase at CVS Pharmacy,-32.13
+savings,122,Income,Bank Interest,Interest earned,13.07
+checking,124,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,124,Transport,City Parking,Purchase at City Parking,-57.92
+checking,125,Other,DMV,DMV purchase,-192.3
+credit_card,126,Shopping,Best Buy,Purchase at Best Buy,-169.03
+credit_card,126,Shopping,IKEA,Purchase at IKEA,-233.29
+credit_card,126,Transport,Uber,Purchase at Uber,-47.75
+credit_card,129,Healthcare,Dental Associates,Purchase at Dental Associates,-148.33
+checking,130,Healthcare,Dental Associates,Dental Associates purchase,-148.88
+credit_card,134,Transfer,Checking Payment Received,Payment received,300.0
+checking,135,Transfer,Credit Card Payment,Payment to Credit Card,-300.0
+checking,138,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,139,Shopping,Target,Purchase at Target,-123.63
+savings,140,Transfer,Checking Transfer,Transfer from Checking,500.0
+checking,140,Transfer,Savings Transfer,Transfer to Savings,-500.0
+credit_card,141,Groceries,Whole Foods,Purchase at Whole Foods,-82.74
+credit_card,144,Entertainment,Spotify,Purchase at Spotify,-33.84
+checking,145,Utilities,City Power & Water,Utility bill,-91.5
+credit_card,148,Groceries,Trader Joe's,Purchase at Trader Joe's,-85.98
+checking,149,Rent,Sunset Apartments,Monthly rent,-1400.0
+savings,152,Income,Bank Interest,Interest earned,12.85
+checking,152,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,153,Dining,Pizza Palace,Purchase at Pizza Palace,-53.27
+checking,157,Other,DMV,DMV purchase,-88.39
+credit_card,159,Shopping,Amazon,Purchase at Amazon,-187.0
+credit_card,162,Groceries,Safeway,Purchase at Safeway,-71.42
+credit_card,164,Transfer,Checking Payment Received,Payment received,300.0
+credit_card,164,Entertainment,Steam,Purchase at Steam,-28.99
+checking,165,Transfer,Credit Card Payment,Payment to Credit Card,-300.0
+checking,166,Income,Employer Payroll,Paycheck deposit,2800.0
+credit_card,166,Transport,Chevron,Purchase at Chevron,-26.86
+credit_card,169,Healthcare,CVS Pharmacy,Purchase at CVS Pharmacy,-139.03
+checking,170,Transfer,Savings Transfer,Transfer to Savings,-500.0
+savings,170,Transfer,Checking Transfer,Transfer from Checking,500.0
+credit_card,172,Groceries,Trader Joe's,Purchase at Trader Joe's,-100.5
+checking,175,Utilities,City Power & Water,Utility bill,-128.37
+credit_card,179,Shopping,Target,Purchase at Target,-31.68
+checking,179,Rent,Sunset Apartments,Monthly rent,-1400.0
+checking,180,Income,Employer Payroll,Paycheck deposit,2800.0

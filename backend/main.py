@@ -15,7 +15,7 @@ import time
 from collections import defaultdict, deque
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, File, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.responses import JSONResponse
@@ -92,6 +92,36 @@ class ChatError(BaseModel):
     error: str
 
 
+class AccountOut(BaseModel):
+    id: str
+    name: str
+    type: str
+    current_balance: float
+
+
+class TransactionOut(BaseModel):
+    id: str
+    account_id: str
+    account_name: str
+    account_type: str
+    date: str
+    amount: float
+    merchant: str
+    description: str
+    category: str
+    running_balance: float
+
+
+class TransactionsResponse(BaseModel):
+    accounts: list[AccountOut]
+    transactions: list[TransactionOut]
+
+
+class ImportResult(BaseModel):
+    imported_count: int
+    accounts: list[AccountOut]
+
+
 @app.exception_handler(ValidationError)
 async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     return JSONResponse(
@@ -136,3 +166,69 @@ async def chat(request: Request) -> ChatResponse | JSONResponse:
         logger.exception("Failed to auto-save conversation turn to MongoDB")
 
     return ChatResponse(response=reply)
+
+
+@app.get("/api/transactions", response_model=TransactionsResponse)
+async def get_transactions() -> TransactionsResponse | JSONResponse:
+    """
+    Read-only endpoint for the frontend's transactions panel display only —
+    separate from the agent's tool-calling path (list_accounts/
+    search_transactions/get_spending_summary in agent.py), which is the only
+    way the model itself reads this data. Not rate-limited like /api/chat
+    (cheap read, no LLM cost) and not covered by the "no REST CRUD" stance
+    that applies specifically to conversation history — see CLAUDE.md.
+    """
+    try:
+        account_docs = await db.list_accounts()
+        # 500 is a display cap, not pagination (none exists) -- comfortably above
+        # the seed script's ~107 rows so nothing is silently dropped today, but
+        # this endpoint returns everything in one shot, not "all" unconditionally.
+        # Revisit if the seed volume grows past this.
+        transaction_docs = await db.search_transactions(limit=500)
+    except Exception:
+        logger.exception("Failed to load transactions from MongoDB")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ChatError(
+                error="Unable to load transaction data right now. Please try again shortly."
+            ).model_dump(),
+        )
+
+    return TransactionsResponse(accounts=account_docs, transactions=transaction_docs)
+
+
+@app.post("/api/transactions/import", response_model=ImportResult)
+async def import_transactions(file: UploadFile = File(...)) -> ImportResult | JSONResponse:
+    """
+    Replace all transaction data with an uploaded CSV -- see specs.md Phase 5
+    for the expected columns and the fail-fast-validation/full-replace
+    semantics. Like GET /api/transactions, this is display-tier plumbing for
+    the frontend only -- the agent never calls this. Not rate-limited, same
+    reasoning as GET /api/transactions above.
+    """
+    raw = await file.read()
+    try:
+        csv_text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=ChatError(error="Invalid file: must be UTF-8 encoded text.").model_dump(),
+        )
+
+    try:
+        result = await db.import_transactions(csv_text)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=ChatError(error=str(exc)).model_dump(),
+        )
+    except Exception:
+        logger.exception("Failed to import transactions into MongoDB")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ChatError(
+                error="Unable to import transactions right now. Please try again shortly."
+            ).model_dump(),
+        )
+
+    return ImportResult(**result)
