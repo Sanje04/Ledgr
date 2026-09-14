@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Message } from "../types";
-import MessageItem from "./MessageItem";
+import MessageItem, { BotAvatar } from "./MessageItem";
 import "../styles/MessageList.css";
 
 export interface MessageListProps {
@@ -25,7 +25,8 @@ function MessageList({ messages, isLoading }: MessageListProps): JSX.Element {
       ))}
       {isLoading && (
         <div className="message-item message-item--bot">
-          <div className="message-item__bubble message-item__bubble--loading">
+          <BotAvatar />
+          <div className="message-item__content">
             <span className="loading-dots" aria-label="Loading">
               <span />
               <span />

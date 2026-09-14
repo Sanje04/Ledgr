@@ -1,20 +1,136 @@
 :root {
-  --color-bg: #f0f2f5;
+  color-scheme: light;
+
+  /* Surfaces */
+  --color-page: #eef0f3;
+  --color-bg: #f6f6f4;
   --color-surface: #ffffff;
-  --color-header-bg: #075e54;
-  --color-header-text: #ffffff;
-  --color-user-bubble: #e2e2e2;
-  --color-bot-bubble: #34495e;
-  --color-bot-text: #ffffff;
-  --color-text: #1a1a1a;
-  --color-muted: #4b5563;
-  --color-error-bg: #fdecea;
-  --color-error-text: #b3261e;
-  --color-accent: #075e54;
+  --color-surface-secondary: #f1f1ef;
+  --color-border: rgba(15, 15, 20, 0.09);
+  --color-border-strong: rgba(15, 15, 20, 0.16);
+
+  /* Ink */
+  --color-text: #0d0d10;
+  --color-text-secondary: #55555e;
+  --color-muted: #8a8a92;
+
+  /* One accent */
+  --color-accent: #3a5cff;
+  --color-accent-hover: #2f4de0;
+  --color-accent-contrast: #ffffff;
+  --color-accent-wash: rgba(58, 92, 255, 0.09);
+
+  /* Semantic */
+  --color-positive: #16a34a;
+  --color-negative: #dc2626;
+  --color-negative-wash: rgba(220, 38, 38, 0.08);
+  --color-error-bg: var(--color-negative-wash);
+  --color-error-text: var(--color-negative);
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(15, 15, 20, 0.05);
+  --shadow-md: 0 4px 16px rgba(15, 15, 20, 0.08);
+  --shadow-lg: 0 16px 40px rgba(15, 15, 20, 0.14);
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  /* Motion (see skills/emil-design-eng_SKILL.md, skills/animate_SKILL.md) */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Category chart palette -- validated categorical palette, fixed hue order.
+     See ui/src/utils/categoryColors.ts / dataviz skill. Referenced via var()
+     so chart colors follow the theme automatically. */
+  --cat-groceries: #2a78d6;
+  --cat-dining: #eb6834;
+  --cat-transport: #1baf7a;
+  --cat-entertainment: #eda100;
+  --cat-shopping: #e87ba4;
+  --cat-utilities: #008300;
+  --cat-healthcare: #4a3aa7;
+  --cat-rent: #e34948;
+  --cat-other: #898781;
 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
-  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --color-page: #08080a;
+    --color-bg: #0c0c0e;
+    --color-surface: #141416;
+    --color-surface-secondary: #1b1b1e;
+    --color-border: rgba(255, 255, 255, 0.09);
+    --color-border-strong: rgba(255, 255, 255, 0.18);
+
+    --color-text: #f2f2f4;
+    --color-text-secondary: #b4b4bc;
+    --color-muted: #86868f;
+
+    --color-accent: #7c93ff;
+    --color-accent-hover: #93a6ff;
+    --color-accent-contrast: #0b0d1f;
+    --color-accent-wash: rgba(124, 147, 255, 0.16);
+
+    --color-positive: #4ade80;
+    --color-negative: #f87171;
+    --color-negative-wash: rgba(248, 113, 113, 0.14);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+    --cat-groceries: #3987e5;
+    --cat-dining: #d95926;
+    --cat-transport: #199e70;
+    --cat-entertainment: #c98500;
+    --cat-shopping: #d55181;
+    --cat-healthcare: #9085e9;
+    --cat-rent: #e66767;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-page: #08080a;
+  --color-bg: #0c0c0e;
+  --color-surface: #141416;
+  --color-surface-secondary: #1b1b1e;
+  --color-border: rgba(255, 255, 255, 0.09);
+  --color-border-strong: rgba(255, 255, 255, 0.18);
+
+  --color-text: #f2f2f4;
+  --color-text-secondary: #b4b4bc;
+  --color-muted: #86868f;
+
+  --color-accent: #7c93ff;
+  --color-accent-hover: #93a6ff;
+  --color-accent-contrast: #0b0d1f;
+  --color-accent-wash: rgba(124, 147, 255, 0.16);
+
+  --color-positive: #4ade80;
+  --color-negative: #f87171;
+  --color-negative-wash: rgba(248, 113, 113, 0.14);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  --cat-groceries: #3987e5;
+  --cat-dining: #d95926;
+  --cat-transport: #199e70;
+  --cat-entertainment: #c98500;
+  --cat-shopping: #d55181;
+  --cat-healthcare: #9085e9;
+  --cat-rent: #e66767;
 }
 
 *,
@@ -30,7 +146,7 @@ body {
 }
 
 body {
-  background-color: var(--color-bg);
+  background-color: var(--color-page);
   color: var(--color-text);
 }
 

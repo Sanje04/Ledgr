@@ -6,7 +6,7 @@
   gap: 0.5rem;
   padding: 0.5rem;
   background-color: var(--color-surface);
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border);
   font-size: 0.78rem;
   color: var(--color-muted);
 }
@@ -19,6 +19,7 @@
   color: inherit;
   cursor: pointer;
   text-decoration: underline;
+  transition: color 160ms ease;
 }
 
 .app-footer__link:hover {

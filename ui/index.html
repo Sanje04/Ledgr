@@ -32,6 +32,19 @@
     <!-- Analytics: skipped for now (no provider configured). Drop a privacy-friendly
          snippet (e.g. Plausible) here before deploying, and remove the cookie
          consent banner if the provider you pick doesn't use cookies. -->
+
+    <!-- Applies a stored theme choice before first paint, so there's no flash of
+         the wrong theme. No stored choice = defer to prefers-color-scheme in CSS. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("ledgr-theme");
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.setAttribute("data-theme", stored);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

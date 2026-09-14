@@ -6,8 +6,29 @@
   gap: 1rem;
   background-color: var(--color-surface);
   color: var(--color-text);
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border);
   padding: 0.75rem 1rem;
+
+  /* Enters from the bottom, the direction it's anchored to -- spatial
+     consistency, see skills/emil-design-eng_SKILL.md. */
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 250ms var(--ease-out), transform 250ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cookie-consent {
+    transition: opacity 200ms ease;
+
+    @starting-style {
+      transform: translateY(0);
+    }
+  }
 }
 
 .cookie-consent p {
@@ -19,15 +40,26 @@
 .cookie-consent button {
   flex-shrink: 0;
   background-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-accent-contrast);
   border: none;
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   padding: 0.5rem 1.1rem;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 160ms var(--ease-out), background-color 160ms ease;
 }
 
 .cookie-consent button:hover {
-  filter: brightness(1.1);
+  background-color: var(--color-accent-hover);
+}
+
+.cookie-consent button:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cookie-consent button {
+    transition-property: background-color;
+  }
 }

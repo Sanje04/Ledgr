@@ -1,6 +1,27 @@
 .message-item {
   display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
   width: 100%;
+
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-item {
+    transition: opacity 200ms ease;
+
+    @starting-style {
+      transform: translateY(0);
+    }
+  }
 }
 
 .message-item--user {
@@ -11,47 +32,59 @@
   justify-content: flex-start;
 }
 
-.message-item__bubble {
-  max-width: 75%;
-  padding: 0.55rem 0.8rem;
-  border-radius: 12px;
+.message-item__avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-item__avatar svg {
+  width: 14px;
+  height: 14px;
+}
+
+.message-item__content {
+  max-width: 78%;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.25rem;
 }
 
-.message-item--user .message-item__bubble {
-  background-color: var(--color-user-bubble);
+.message-item--user .message-item__content {
+  background-color: var(--color-accent-wash);
   color: var(--color-text);
-  border-bottom-right-radius: 2px;
 }
 
-.message-item--bot .message-item__bubble {
-  background-color: var(--color-bot-bubble);
-  color: var(--color-bot-text);
-  border-bottom-left-radius: 2px;
-}
-
-.message-item__bubble--loading {
-  padding: 0.7rem 0.9rem;
+.message-item--bot .message-item__content {
+  background-color: var(--color-surface-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
 }
 
 .message-item__text {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 0.95rem;
-  line-height: 1.4;
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .message-item__timestamp {
   align-self: flex-end;
-  font-size: 0.7rem;
-  opacity: 0.7;
+  font-size: 0.68rem;
+  color: var(--color-muted);
 }
 
 @media (max-width: 600px) {
-  .message-item__bubble {
-    max-width: 88%;
+  .message-item__content {
+    max-width: 85%;
   }
 }

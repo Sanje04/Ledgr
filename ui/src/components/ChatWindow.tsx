@@ -4,6 +4,7 @@ import { loadChatHistory, saveChatHistory } from "../utils/storage";
 import { sendMessageToAPI } from "../services/api";
 import MessageList from "./MessageList";
 import InputField from "./InputField";
+import ThemeToggle from "./ThemeToggle";
 import "../styles/ChatWindow.css";
 
 function createId(): string {
@@ -80,7 +81,17 @@ function ChatWindow(): JSX.Element {
   return (
     <div className="chat-window">
       <header className="chat-window__header">
-        <h1>AI Chatbot</h1>
+        <div className="chat-window__brand">
+          <span className="chat-window__logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2v4M5 10h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2Z" />
+              <circle cx="8.5" cy="15" r="1.25" fill="currentColor" stroke="none" />
+              <circle cx="15.5" cy="15" r="1.25" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          <h1>LEDGR - AI Banking Assistant</h1>
+        </div>
+        <ThemeToggle />
       </header>
 
       <MessageList messages={messages} isLoading={isLoading} />

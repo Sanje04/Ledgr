@@ -7,18 +7,50 @@
   justify-content: center;
   padding: 1rem;
   z-index: 100;
+
+  opacity: 1;
+  transition: opacity 200ms ease;
+
+  @starting-style {
+    opacity: 0;
+  }
 }
 
 .legal-modal {
   background-color: var(--color-surface);
   color: var(--color-text);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   max-width: 560px;
   width: 100%;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-border);
+
+  /* Modals aren't anchored to a trigger, so they scale from center, not a
+     trigger origin -- see skills/emil-design-eng_SKILL.md. */
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legal-modal__overlay,
+  .legal-modal {
+    transition: opacity 200ms ease;
+  }
+
+  .legal-modal {
+    @starting-style {
+      transform: scale(1);
+    }
+  }
 }
 
 .legal-modal__header {
@@ -26,7 +58,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
@@ -43,10 +75,23 @@
   cursor: pointer;
   color: var(--color-muted);
   padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  transition: transform 160ms var(--ease-out), color 160ms ease, background-color 160ms ease;
 }
 
 .legal-modal__close:hover {
   color: var(--color-text);
+  background-color: var(--color-surface-secondary);
+}
+
+.legal-modal__close:active {
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legal-modal__close {
+    transition-property: color, background-color;
+  }
 }
 
 .legal-modal__body {
