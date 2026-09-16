@@ -1,4 +1,4 @@
-import type { ImportResult, TransactionsResponse } from "../types";
+import type { AccountType, ImportResult, TransactionsResponse } from "../types";
 
 // Backend transactions endpoint isn't configured yet. Set VITE_TRANSACTIONS_API_URL
 // (alongside VITE_API_URL) once it is, and requests will be sent there for real
@@ -106,10 +106,14 @@ export async function fetchTransactions(): Promise<TransactionsResponse> {
 }
 
 // Unlike fetchTransactions' fully-collapsed error message, this surfaces the
-// backend's specific validation error (e.g. "Row 12: unknown category...")
-// since it's actionable -- the user can fix their CSV -- where a read failure
-// isn't.
-export async function importTransactionsCsv(file: File): Promise<ImportResult> {
+// backend's specific validation error (e.g. "Row 12: invalid date...") since
+// it's actionable -- the user can fix their CSV -- where a read failure isn't.
+export async function importTransactionsCsv(
+  file: File,
+  accountName: string,
+  accountType: AccountType,
+  openingBalance: number
+): Promise<ImportResult> {
   if (!IMPORT_API_URL) {
     throw new Error(
       "Error: Import isn't available in mock mode. Configure VITE_TRANSACTIONS_API_URL to import real data."
@@ -118,6 +122,9 @@ export async function importTransactionsCsv(file: File): Promise<ImportResult> {
 
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("account_name", accountName);
+  formData.append("account_type", accountType);
+  formData.append("opening_balance", String(openingBalance));
 
   let response: Response;
   try {

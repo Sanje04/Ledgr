@@ -15,7 +15,7 @@ import time
 from collections import defaultdict, deque
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Request, UploadFile, status
+from fastapi import FastAPI, File, Form, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.responses import JSONResponse
@@ -198,12 +198,19 @@ async def get_transactions() -> TransactionsResponse | JSONResponse:
 
 
 @app.post("/api/transactions/import", response_model=ImportResult)
-async def import_transactions(file: UploadFile = File(...)) -> ImportResult | JSONResponse:
+async def import_transactions(
+    file: UploadFile = File(...),
+    account_name: str = Form(...),
+    account_type: str = Form(...),
+    opening_balance: float = Form(0.0),
+) -> ImportResult | JSONResponse:
     """
-    Replace all transaction data with an uploaded CSV -- see specs.md Phase 5
-    for the expected columns and the fail-fast-validation/full-replace
-    semantics. Like GET /api/transactions, this is display-tier plumbing for
-    the frontend only -- the agent never calls this. Not rate-limited, same
+    Replace all account/transaction data with a single account built from an
+    uploaded bank-statement CSV plus the name/type/opening balance the
+    frontend's import dialog collects -- see specs.md Phase 5 for the
+    expected CSV shape and the fail-fast-validation/full-replace semantics.
+    Like GET /api/transactions, this is display-tier plumbing for the
+    frontend only -- the agent never calls this. Not rate-limited, same
     reasoning as GET /api/transactions above.
     """
     raw = await file.read()
@@ -216,7 +223,7 @@ async def import_transactions(file: UploadFile = File(...)) -> ImportResult | JS
         )
 
     try:
-        result = await db.import_transactions(csv_text)
+        result = await db.import_transactions(csv_text, account_name, account_type, opening_balance)
     except ValueError as exc:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -3,8 +3,8 @@ import type { Transaction } from "../types";
 // Fixed rendering/color order for the real spending categories -- deliberately
 // NOT sorted by amount. Per the dataviz skill's non-negotiable rule ("color
 // follows the entity, never its rank"), the same category must always occupy
-// the same visual position so that changing the account filter or time window
-// never repaints a category that's still present. Must match the keys of
+// the same visual position so that changing the time window or importing a
+// new dataset never repaints a category that's still present. Must match the keys of
 // CATEGORY_COLOR_VARS in categoryColors.ts.
 export const CATEGORY_ORDER = [
   "Groceries",

@@ -62,6 +62,159 @@
   color: var(--color-positive);
 }
 
+.transactions-panel__import-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 100;
+
+  opacity: 1;
+  transition: opacity 200ms ease;
+
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+.transactions-panel__import-dialog {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-lg);
+  max-width: 360px;
+  width: 100%;
+  padding: 1.25rem;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-border);
+
+  /* Not anchored to a trigger, so it scales from center -- see
+     skills/emil-design-eng_SKILL.md. */
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transactions-panel__import-overlay,
+  .transactions-panel__import-dialog {
+    transition: opacity 200ms ease;
+  }
+
+  .transactions-panel__import-dialog {
+    @starting-style {
+      transform: scale(1);
+    }
+  }
+}
+
+.transactions-panel__import-dialog-title {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+  overflow-wrap: break-word;
+}
+
+.transactions-panel__import-dialog-warning {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+}
+
+.transactions-panel__import-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.transactions-panel__import-field input,
+.transactions-panel__import-field select {
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.transactions-panel__import-field input:focus,
+.transactions-panel__import-field select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.transactions-panel__import-dialog-error {
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  color: var(--color-error-text);
+}
+
+.transactions-panel__import-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.transactions-panel__import-dialog-cancel,
+.transactions-panel__import-dialog-submit {
+  border-radius: var(--radius-pill);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease;
+}
+
+.transactions-panel__import-dialog-cancel {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+.transactions-panel__import-dialog-cancel:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.transactions-panel__import-dialog-submit {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.transactions-panel__import-dialog-submit:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.transactions-panel__import-dialog-cancel:active:not(:disabled),
+.transactions-panel__import-dialog-submit:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.transactions-panel__import-dialog-cancel:disabled,
+.transactions-panel__import-dialog-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transactions-panel__import-dialog-cancel,
+  .transactions-panel__import-dialog-submit {
+    transition-property: background-color, border-color, color;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .transactions-panel__import-button {
     transition-property: background-color, border-color, color;
@@ -138,50 +291,6 @@
 
 .transactions-panel__account-balance--negative {
   color: var(--color-negative);
-}
-
-.transactions-panel__filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0.9rem 0 0.2rem;
-}
-
-.transactions-panel__filter-button {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-pill);
-  padding: 0.32rem 0.8rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: transform 160ms var(--ease-out), background-color 160ms ease, border-color 160ms ease,
-    color 160ms ease;
-}
-
-.transactions-panel__filter-button:hover {
-  border-color: var(--color-border-strong);
-  color: var(--color-text);
-}
-
-.transactions-panel__filter-button:active {
-  transform: scale(0.96);
-}
-
-.transactions-panel__filter-button--active {
-  background-color: var(--color-accent);
-  border-color: var(--color-accent);
-  color: var(--color-accent-contrast);
-}
-
-.transactions-panel__filter-button--active:hover {
-  color: var(--color-accent-contrast);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .transactions-panel__filter-button {
-    transition-property: background-color, border-color, color;
-  }
 }
 
 .transactions-panel__transaction {

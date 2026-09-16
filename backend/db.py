@@ -13,7 +13,6 @@ which populates the accounts/transactions collections these functions read.
 """
 
 import csv
-import io
 import os
 import re
 from datetime import datetime, timezone
@@ -30,7 +29,7 @@ conversations = db["conversations"]
 accounts = db["accounts"]
 transactions = db["transactions"]
 
-ACCOUNT_IDS: list[str] = ["checking", "savings", "credit_card"]
+ACCOUNT_TYPES: list[str] = ["checking", "savings", "credit_card"]
 CATEGORIES: list[str] = [
     "Groceries",
     "Rent",
@@ -48,16 +47,25 @@ CATEGORIES: list[str] = [
 # own accounts (Transfer) or receiving it (Income) isn't "spending".
 NON_SPENDING_CATEGORIES = ("Transfer", "Income")
 
-# Canonical name/type per account -- accounts are structurally fixed (also
-# referenced by agent.py's tool enums and the frontend's AccountType union),
-# so import_transactions() never takes name/type from the uploaded file.
-_ACCOUNT_METADATA: dict[str, dict[str, str]] = {
-    "checking": {"name": "Checking", "type": "checking"},
-    "savings": {"name": "Savings", "type": "savings"},
-    "credit_card": {"name": "Credit Card", "type": "credit_card"},
-}
+# Imported statement rows carry no category column (see _parse_import_csv) --
+# everything lands here except the transfer-description heuristic below.
+DEFAULT_IMPORT_CATEGORY = "Other"
 
-REQUIRED_IMPORT_COLUMNS = {"account_id", "date", "category", "merchant", "description", "amount"}
+# Outgoing legs matching these substrings (checked against the raw,
+# uppercased description) are categorized as Transfer instead of Other, so
+# they're excluded from get_spending_summary() by NON_SPENDING_CATEGORIES --
+# without this, an e-transfer-out or internal "TF" transfer would otherwise
+# inflate "spending" by its full amount. Deliberately narrow (just enough to
+# keep the demo statement's totals sane), not a general categorizer -- see
+# specs.md Phase 5.
+_TRANSFER_DESCRIPTION_MARKERS = ("ETRNSFR SENT", "] TF ")
+
+# Header cell names (case-insensitive, substring-matched) expected in an
+# imported bank statement export -- see _find_statement_header.
+_STATEMENT_TYPE_COLUMN = ("transaction", "type")
+_STATEMENT_DATE_COLUMN = ("date",)
+_STATEMENT_AMOUNT_COLUMN = ("amount",)
+_STATEMENT_DESCRIPTION_COLUMN = ("description",)
 
 
 async def ensure_indexes() -> None:
@@ -350,111 +358,159 @@ def compute_account_balances(
     return balance, docs
 
 
-def _parse_import_csv(csv_text: str) -> dict[str, Any]:
+_BRACKET_TAG_RE = re.compile(r"^\[[A-Z]{2,4}\]\s*")
+_MULTI_SPACE_RE = re.compile(r"\s{2,}")
+
+
+def _derive_merchant(description: str) -> str:
     """
-    Parse and validate an uploaded transactions CSV into events grouped by
-    account_id, plus a resolved opening_balance per account.
-
-    Pure function (no I/O) so the validation logic is directly unit-testable
-    -- mirrors _build_transaction_filter's split for the same reason. Expected
-    columns: account_id, date, category, merchant, description, amount, plus
-    an optional opening_balance column (blank on most rows -- the first
-    non-blank value seen for each account_id wins, defaulting to 0.0 if never
-    given, so a running_balance/current_balance means the same thing here as
-    it does for the seeded demo data). Raises ValueError with a 1-indexed row
-    number on the first invalid row -- the whole import is rejected rather
-    than skipping or coercing bad rows, so partial or silently-miscategorized
-    data never reaches Mongo.
+    Bank statement descriptions carry a leading transaction-type tag (e.g.
+    "[PR]") and pad the merchant name out to a fixed-width location column
+    with runs of 2+ spaces, e.g. "[PR]CAMPUS PIZZA        WATERLOO   ON" --
+    strip the tag and take the text before that padding as the merchant.
+    Falls back to the whole trimmed string when there's no padding to split
+    on (e.g. "[SC]PLUS PLAN").
     """
-    reader = csv.DictReader(io.StringIO(csv_text))
-    if reader.fieldnames is None or not REQUIRED_IMPORT_COLUMNS.issubset(reader.fieldnames):
-        missing = REQUIRED_IMPORT_COLUMNS - set(reader.fieldnames or [])
-        raise ValueError(f"CSV is missing required column(s): {', '.join(sorted(missing))}.")
+    without_tag = _BRACKET_TAG_RE.sub("", description).strip()
+    return _MULTI_SPACE_RE.split(without_tag, maxsplit=1)[0].strip() or without_tag
 
-    events_by_account: dict[str, list[dict[str, Any]]] = {aid: [] for aid in ACCOUNT_IDS}
-    opening_balances: dict[str, float] = {}
 
-    for row_num, row in enumerate(reader, start=2):  # header is line 1
-        account_id = (row.get("account_id") or "").strip()
-        if account_id not in ACCOUNT_IDS:
-            raise ValueError(
-                f"Row {row_num}: unknown account_id '{account_id}'. Expected one of: {', '.join(ACCOUNT_IDS)}."
-            )
+def _classify_import_category(description: str) -> str:
+    upper = description.upper()
+    if any(marker in upper for marker in _TRANSFER_DESCRIPTION_MARKERS):
+        return "Transfer"
+    return DEFAULT_IMPORT_CATEGORY
 
-        category = (row.get("category") or "").strip()
-        if category not in CATEGORIES:
-            raise ValueError(
-                f"Row {row_num}: unknown category '{category}'. Expected one of: {', '.join(CATEGORIES)}."
-            )
 
-        date_raw = (row.get("date") or "").strip()
+def _find_column(header_index: dict[str, int], keywords: tuple[str, ...]) -> int:
+    for name, idx in header_index.items():
+        if all(kw in name for kw in keywords):
+            return idx
+    raise ValueError(f"CSV header is missing a column matching {' '.join(keywords)!r}.")
+
+
+def _find_statement_header(lines: list[str]) -> tuple[int, dict[str, int]]:
+    """
+    Bank exports carry a free-text preamble line (e.g. "Following data is
+    valid as of ...") before the real header, and the header's exact column
+    set/order/naming isn't guaranteed across exports -- scan for the row that
+    contains the columns actually needed (by content, not fixed line number)
+    rather than assuming line 1.
+    """
+    for i, line in enumerate(lines):
+        cells = [c.strip().lower() for c in next(csv.reader([line]))]
+        if "transaction type" in cells and "date posted" in cells:
+            return i, {name: idx for idx, name in enumerate(cells)}
+    raise ValueError(
+        "CSV is missing the expected header row (must include 'Transaction Type' and 'Date Posted' columns)."
+    )
+
+
+def _parse_import_csv(csv_text: str) -> list[dict[str, Any]]:
+    """
+    Parse a raw bank-statement export into transaction events for the single
+    account being imported (see specs.md Phase 5) -- account name/type/
+    opening balance come from the import dialog, not the file. These exports
+    carry a free-text preamble and a header whose exact columns aren't
+    guaranteed, so the header is located by content and columns by name
+    (case-insensitive substring match) rather than by position. An
+    identifying column (e.g. card number) is allowed and ignored. There's no
+    category column, so every row is categorized DEFAULT_IMPORT_CATEGORY
+    ("Other") except outgoing-transfer-shaped descriptions (see
+    _classify_import_category) -- a deliberate, narrow heuristic, not a
+    general categorizer. Raises ValueError with a 1-indexed (original file)
+    line number on the first invalid row -- fail-fast, same all-or-nothing
+    contract as before.
+    """
+    numbered_lines = [(i, line) for i, line in enumerate(csv_text.splitlines(), start=1) if line.strip()]
+    if not numbered_lines:
+        raise ValueError("CSV is empty.")
+
+    header_pos, header_index = _find_statement_header([line for _, line in numbered_lines])
+    type_idx = _find_column(header_index, _STATEMENT_TYPE_COLUMN)
+    date_idx = _find_column(header_index, _STATEMENT_DATE_COLUMN)
+    amount_idx = _find_column(header_index, _STATEMENT_AMOUNT_COLUMN)
+    description_idx = _find_column(header_index, _STATEMENT_DESCRIPTION_COLUMN)
+
+    data_lines = numbered_lines[header_pos + 1 :]
+    events: list[dict[str, Any]] = []
+    for line_no, row in zip(
+        (ln for ln, _ in data_lines), csv.reader(line for _, line in data_lines)
+    ):
+        if not any(cell.strip() for cell in row):
+            continue
+
+        txn_type = row[type_idx].strip().upper() if type_idx < len(row) else ""
+        if txn_type not in ("DEBIT", "CREDIT"):
+            raise ValueError(f"Row {line_no}: unknown transaction type '{txn_type}'. Expected DEBIT or CREDIT.")
+
+        date_raw = row[date_idx].strip() if date_idx < len(row) else ""
         try:
-            date = datetime.fromisoformat(date_raw).replace(tzinfo=timezone.utc)
+            date = datetime.strptime(date_raw, "%Y%m%d").replace(tzinfo=timezone.utc)
         except ValueError:
-            raise ValueError(f"Row {row_num}: invalid date '{date_raw}'. Expected YYYY-MM-DD.")
+            raise ValueError(f"Row {line_no}: invalid date '{date_raw}'. Expected YYYYMMDD.")
 
-        amount_raw = (row.get("amount") or "").strip()
+        amount_raw = row[amount_idx].strip() if amount_idx < len(row) else ""
         try:
-            amount = float(amount_raw)
+            # The type column, not the amount's own sign, decides direction --
+            # some exports emit all-positive amounts and carry direction only
+            # in the type column, so trusting the sign as-given would silently
+            # turn every DEBIT into income for those files.
+            magnitude = abs(float(amount_raw))
         except ValueError:
-            raise ValueError(f"Row {row_num}: invalid amount '{amount_raw}'.")
+            raise ValueError(f"Row {line_no}: invalid amount '{amount_raw}'.")
+        amount = -magnitude if txn_type == "DEBIT" else magnitude
 
-        opening_balance_raw = (row.get("opening_balance") or "").strip()
-        if opening_balance_raw and account_id not in opening_balances:
-            try:
-                opening_balances[account_id] = float(opening_balance_raw)
-            except ValueError:
-                raise ValueError(f"Row {row_num}: invalid opening_balance '{opening_balance_raw}'.")
-
-        events_by_account[account_id].append(
+        description = row[description_idx].strip() if description_idx < len(row) else ""
+        events.append(
             {
                 "date": date,
                 "amount": amount,
-                "merchant": (row.get("merchant") or "").strip(),
-                "description": (row.get("description") or "").strip(),
-                "category": category,
+                "merchant": _derive_merchant(description),
+                "description": description,
+                "category": _classify_import_category(description),
             }
         )
 
-    if not any(events_by_account.values()):
+    if not events:
         raise ValueError("CSV contains no transaction rows.")
 
-    for account_id in ACCOUNT_IDS:
-        opening_balances.setdefault(account_id, 0.0)
-
-    return {"events_by_account": events_by_account, "opening_balances": opening_balances}
+    return events
 
 
-async def import_transactions(csv_text: str) -> dict[str, Any]:
+def _slugify_account_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    return slug or "account"
+
+
+async def import_transactions(
+    csv_text: str, account_name: str, account_type: str, opening_balance: float = 0.0
+) -> dict[str, Any]:
     """
-    Replace all transactions with the contents of an uploaded CSV, recomputing
-    every account's balance to match (see specs.md Phase 5).
-
-    Validation happens entirely in _parse_import_csv before any write -- it
-    raises ValueError and nothing touches Mongo if any row is invalid, so an
-    import either fully succeeds or leaves existing data untouched. An
-    account with no rows in the uploaded file resets to a zero balance rather
-    than keeping its old one -- "replace everything" was the chosen semantic,
-    not "replace only the account(s) present in the file".
+    Replace all account/transaction data with a single account built from an
+    uploaded bank-statement CSV plus the name/type/opening balance supplied
+    in the import dialog -- accounts are no longer a fixed set of 3 (see
+    specs.md Phase 5). Validation (name non-empty, type known, every CSV row)
+    happens entirely before any write, so an import either fully succeeds or
+    leaves existing data untouched. Like scripts/seed_transactions.py, this
+    replaces the accounts collection outright (delete_many + insert_one)
+    rather than upserting into a fixed id, since the imported account may
+    have a different name/id than whatever was there before.
     """
-    parsed = _parse_import_csv(csv_text)
-    events_by_account = parsed["events_by_account"]
-    opening_balances = parsed["opening_balances"]
+    name = account_name.strip()
+    if not name:
+        raise ValueError("Account name is required.")
+    if account_type not in ACCOUNT_TYPES:
+        raise ValueError(f"Unknown account type '{account_type}'. Expected one of: {', '.join(ACCOUNT_TYPES)}.")
 
-    all_txns: list[dict[str, Any]] = []
-    for account_id in ACCOUNT_IDS:
-        meta = _ACCOUNT_METADATA[account_id]
-        balance, docs = compute_account_balances(
-            account_id, meta["name"], meta["type"], opening_balances[account_id], events_by_account[account_id]
-        )
-        all_txns.extend(docs)
-        await accounts.update_one(
-            {"_id": account_id},
-            {"$set": {"name": meta["name"], "type": meta["type"], "current_balance": balance}},
-            upsert=True,
-        )
+    events = _parse_import_csv(csv_text)
+    account_id = _slugify_account_name(name)
+    balance, docs = compute_account_balances(account_id, name, account_type, opening_balance, events)
+
+    await accounts.delete_many({})
+    await accounts.insert_one({"_id": account_id, "name": name, "type": account_type, "current_balance": balance})
 
     await transactions.delete_many({})
-    await transactions.insert_many(all_txns)
+    await transactions.insert_many(docs)
 
-    return {"imported_count": len(all_txns), "accounts": await list_accounts()}
+    return {"imported_count": len(docs), "accounts": await list_accounts()}

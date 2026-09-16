@@ -1,7 +1,7 @@
 // Fixed categorical color assignment -- each category always maps to the same
 // slot regardless of which categories are present or how large they are in a
-// given filter/time window, so switching the account filter never repaints a
-// category that's still on screen. Hues are the validated default categorical
+// given time window, so importing a new dataset never repaints a category
+// that's still on screen. Hues are the validated default categorical
 // palette (see the dataviz skill / references/palette.md), assigned in a
 // fixed order -- never re-sorted by value or rank.
 //

@@ -54,20 +54,50 @@ describe("TransactionsPanel", () => {
     expect(screen.getAllByText("Checking").length).toBeGreaterThan(0);
   });
 
-  it("filters the transaction list by account when a filter button is clicked", async () => {
+  it("imports a CSV with a user-given account name/type and reloads transactions on success", async () => {
     vi.mocked(transactionsService.fetchTransactions).mockResolvedValue(mockData);
+    vi.mocked(transactionsService.importTransactionsCsv).mockResolvedValue({
+      imported_count: 3,
+      accounts: mockData.accounts,
+    });
 
     render(<TransactionsPanel />);
-
     await waitFor(() => {
       expect(screen.getByText("Whole Foods")).toBeInTheDocument();
     });
-    expect(screen.getByText("Bank Interest")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Savings" }));
+    const file = new File(["Transaction Type,Date Posted,Transaction Amount,Description\n"], "statement.csv", {
+      type: "text/csv",
+    });
+    fireEvent.change(screen.getByLabelText("Import transactions CSV"), { target: { files: [file] } });
 
-    expect(screen.queryByText("Whole Foods")).not.toBeInTheDocument();
-    expect(screen.getByText("Bank Interest")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("e.g. My Card"), { target: { value: "My Card" } });
+    fireEvent.change(screen.getByDisplayValue("Checking"), { target: { value: "savings" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Imported 3 transactions.")).toBeInTheDocument();
+    });
+    expect(transactionsService.importTransactionsCsv).toHaveBeenCalledWith(file, "My Card", "savings", 0);
+  });
+
+  it("shows a validation error and does not call the import service when no account name is given", async () => {
+    vi.mocked(transactionsService.fetchTransactions).mockResolvedValue(mockData);
+    vi.mocked(transactionsService.importTransactionsCsv).mockClear();
+
+    render(<TransactionsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText("Whole Foods")).toBeInTheDocument();
+    });
+
+    const file = new File(["Transaction Type,Date Posted,Transaction Amount,Description\n"], "statement.csv", {
+      type: "text/csv",
+    });
+    fireEvent.change(screen.getByLabelText("Import transactions CSV"), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    expect(await screen.findByText("Account name is required.")).toBeInTheDocument();
+    expect(transactionsService.importTransactionsCsv).not.toHaveBeenCalled();
   });
 
   it("shows an error message when loading fails", async () => {

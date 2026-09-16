@@ -39,9 +39,9 @@ SYSTEM_PROMPT = (
     "user asks about past conversations or wants history deleted. Only call "
     "delete_conversation when the user has clearly confirmed they want their "
     "history deleted; otherwise ask them to confirm first. Second, tools over the "
-    "user's mock bank data across three accounts (Checking, Savings, Credit Card): "
-    "list_accounts for balances, search_transactions for specific transaction "
-    "lookups, and get_spending_summary for any total/sum question. Categories are: "
+    "user's imported bank account: list_accounts for the account name and "
+    "balance, search_transactions for specific transaction lookups, and "
+    "get_spending_summary for any total/sum question. Categories are: "
     f"{', '.join(db.CATEGORIES)}. Always use get_spending_summary for totals — "
     "never add up individual transaction amounts yourself. You can only call one "
     "tool per turn, so if a question needs two lookups, answer the first and ask "
@@ -110,9 +110,9 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "list_accounts",
             "description": (
-                "List the user's financial accounts (Checking, Savings, Credit Card) "
-                "with their current balances. Use this for balance questions, e.g. "
-                "'what's my checking balance?' or 'how much do I have total?'."
+                "List the user's financial account(s) with their current balances "
+                "and names. Use this for balance questions, e.g. 'what's my "
+                "balance?', or to find out what an account is called."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -133,8 +133,11 @@ TOOLS: list[dict[str, Any]] = [
                 "properties": {
                     "account": {
                         "type": "string",
-                        "enum": db.ACCOUNT_IDS,
-                        "description": "Restrict results to this account.",
+                        "description": (
+                            "Restrict results to this account (its id, from "
+                            "list_accounts). Usually unnecessary — there's normally "
+                            "just one account."
+                        ),
                     },
                     "category": {
                         "type": "string",
@@ -192,8 +195,10 @@ TOOLS: list[dict[str, Any]] = [
                     },
                     "account": {
                         "type": "string",
-                        "enum": db.ACCOUNT_IDS,
-                        "description": "Restrict to this account.",
+                        "description": (
+                            "Restrict to this account (its id, from list_accounts). "
+                            "Usually unnecessary — there's normally just one account."
+                        ),
                     },
                     "start_date": {
                         "type": "string",
