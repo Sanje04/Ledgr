@@ -1,6 +1,6 @@
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "ledgr-theme";
+const STORAGE_KEY = "tender-theme";
 
 export function getStoredTheme(): Theme | null {
   try {

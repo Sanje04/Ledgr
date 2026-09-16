@@ -89,7 +89,7 @@ function ChatWindow(): JSX.Element {
               <circle cx="15.5" cy="15" r="1.25" fill="currentColor" stroke="none" />
             </svg>
           </span>
-          <h1>LEDGR - AI Banking Assistant</h1>
+          <h1>TENDER - AI Banking Assistant</h1>
         </div>
         <ThemeToggle />
       </header>

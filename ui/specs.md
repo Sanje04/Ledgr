@@ -28,7 +28,7 @@ Build a **frontend-only** React chatbot application with:
 ## Project Structure
 
 ```
-ledgr-ui/
+tender-ui/
 ├── public/
 │   └── index.html
 ├── src/
@@ -276,7 +276,7 @@ The original chat UI (WhatsApp-style green header/bubbles, single light theme) w
 
 **Design tokens (`src/styles/index.css`):** a full light/dark token system — surfaces (`--color-bg`, `--color-surface`, `--color-surface-secondary`), ink (`--color-text`, `--color-text-secondary`, `--color-muted`), one accent (`--color-accent` + hover/contrast/wash variants), semantic positive/negative colors, elevation (`--shadow-sm/md/lg`), radius (`--radius-sm/md/lg/pill`), and motion easings (`--ease-out`, `--ease-in-out` — the strong custom curves the animate skill calls for, not the weak CSS built-ins). Every component was migrated off hardcoded hex values onto these tokens so dark mode "just works" everywhere, including the category chart's colors (`--cat-*` custom properties, referenced via `var()` from `utils/categoryColors.ts` so the same `colorForCategory()` call resolves to the right hue in either theme with no theme-detection logic in JS).
 
-**Theme mechanism:** `utils/theme.ts` (get/set stored theme in `localStorage` under `ledgr-theme`, resolve effective theme against `prefers-color-scheme` when nothing is stored) + `components/ThemeToggle.tsx` (sun/moon crossfade button, in `ChatWindow`'s header). An inline script in `index.html`'s `<head>` applies a stored theme before first paint to avoid a flash of the wrong theme. CSS follows the standard dual-scope pattern: `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {...} }` for the OS-level default, plus `:root[data-theme="dark"] {...}` so an explicit toggle wins either direction.
+**Theme mechanism:** `utils/theme.ts` (get/set stored theme in `localStorage` under `tender-theme`, resolve effective theme against `prefers-color-scheme` when nothing is stored) + `components/ThemeToggle.tsx` (sun/moon crossfade button, in `ChatWindow`'s header). An inline script in `index.html`'s `<head>` applies a stored theme before first paint to avoid a flash of the wrong theme. CSS follows the standard dual-scope pattern: `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {...} }` for the OS-level default, plus `:root[data-theme="dark"] {...}` so an explicit toggle wins either direction.
 
 **Chat modernized** (`MessageItem.tsx`/`.css`, `MessageList.tsx`): moved off WhatsApp-style bubbles to a minimal AI-chat layout — a bot avatar badge, assistant replies in a bordered `--color-surface-secondary` card, user messages right-aligned in an accent-wash tint, no speech-bubble tails. Messages animate in with `@starting-style` (opacity + `translateY(6px)` → identity, `ease-out`, 220ms) per the animate skill's preferred tool for "entry animation on mount, no JS state" — reduced-motion keeps the opacity fade and drops the translate.
 

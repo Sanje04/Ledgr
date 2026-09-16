@@ -1,4 +1,4 @@
-# Ledgr — CLAUDE.md
+# Tender — CLAUDE.md
 
 Self-hosted AI chatbot: React/TS frontend + FastAPI backend + Ollama (LLM) + MongoDB (conversation store + mock bank accounts/transactions). Full narrative and rationale live in [README.md](README.md), [backend/specs.md](backend/specs.md), and [ui/specs.md](ui/specs.md) — this file is the condensed operating manual, not a replacement for them. Read the relevant specs.md before touching Phase 2/3/4 backend logic; it has the "why" behind decisions this file only states as rules.
 

@@ -1,4 +1,4 @@
-# Ledgr — Self-Hosted AI Chatbot
+# Tender — Self-Hosted AI Chatbot
 
 A full-stack chat application with a React/TypeScript frontend and a Python/FastAPI backend, designed to connect to a **locally-hosted LLM (via Ollama)** instead of a paid third-party API. Built as a hands-on exercise in full-stack integration, API contract design, and running open-weight models on your own hardware.
 
@@ -68,7 +68,7 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 ## Project structure
 
 ```
-ledgr/
+tender/
 ├── ui/                    React + TypeScript frontend (Vite)
 │   ├── src/
 │   │   ├── components/    ChatWindow, MessageList, MessageItem, InputField, TransactionsPanel

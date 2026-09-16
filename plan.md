@@ -1,5 +1,5 @@
-# Test Cases for LEDGR
-Building test cases for LEDGR involves creating a suite of tests that validate the functionality of both the frontend and backend components. Here’s a structured approach to building test cases for LEDGR:
+# Test Cases for TENDER
+Building test cases for TENDER involves creating a suite of tests that validate the functionality of both the frontend and backend components. Here’s a structured approach to building test cases for TENDER:
 
 You must prove each of the test cases work and build the files necessary to run them. Below is a detailed outline of the test cases for the backend, focusing on the API endpoints and their expected behaviors.
 

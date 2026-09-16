@@ -1,6 +1,6 @@
 # Deployment
 
-This covers running Ledgr via `docker-compose.yml` on a self-hosted machine,
+This covers running Tender via `docker-compose.yml` on a self-hosted machine,
 as opposed to the manual `.venv`/`npm run dev` setup in [README.md](README.md#getting-started).
 It builds and runs two containers — the FastAPI backend and the built React
 frontend served by nginx (which also reverse-proxies `/api/` to the backend,
