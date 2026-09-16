@@ -1,6 +1,4 @@
-## Role
-
-You are an expert backend developer building a simple chatbot interface which reads user prompts and connects to a backend API.
+# Backend Design Spec
 
 ## Frameworks & Stack
 

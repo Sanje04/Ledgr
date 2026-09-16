@@ -24,7 +24,12 @@ Thumbs.db
 *.local
 *.tsbuildinfo
 
-# markdown files
+# AI-assistant working docs (kept locally, not published)
 INTERVIEW_NOTES.md
+CLAUDE.md
+plan.md
+skills/
+.kiro/
+ui/.kiro/
 
 statement.csv
