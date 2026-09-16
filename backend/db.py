@@ -1,8 +1,11 @@
 """
 MongoDB connection and conversation persistence for the chat backend.
 
-Two separate paths (see specs.md Phase 3):
+Three paths now (see specs.md Phase 3 and Phase 7):
   - save_turn(): deterministic auto-save, called unconditionally on every /api/chat request.
+  - get_recent_history(): deterministic, non-model-controlled fetch of a bounded window of
+    recent turns, called unconditionally before agent.run() to seed multi-turn context --
+    like save_turn(), not tool-callable, not model-controlled.
   - list_conversations() / search_history() / delete_conversation(): LLM-tool-callable
     operations, invoked by agent.py only when the model decides to call them.
 
@@ -13,6 +16,7 @@ which populates the accounts/transactions collections these functions read.
 """
 
 import csv
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -20,8 +24,28 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
+logger = logging.getLogger(__name__)
+
 MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB_NAME", "ag_ai")
+
+DEFAULT_MAX_HISTORY_TURNS = 5
+
+
+def _load_max_history_turns() -> int:
+    raw = os.environ.get("MAX_HISTORY_TURNS", str(DEFAULT_MAX_HISTORY_TURNS))
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid MAX_HISTORY_TURNS=%r (must be an integer); falling back to default %d",
+            raw,
+            DEFAULT_MAX_HISTORY_TURNS,
+        )
+        return DEFAULT_MAX_HISTORY_TURNS
+
+
+MAX_HISTORY_TURNS = _load_max_history_turns()
 
 client = AsyncIOMotorClient(MONGODB_URI)
 db = client[MONGODB_DB_NAME]
@@ -106,6 +130,41 @@ async def save_turn(user_message: str, assistant_message: str) -> None:
             "messages": turn,
         }
     )
+
+
+async def get_recent_history(max_turns: int = MAX_HISTORY_TURNS) -> list[dict[str, str]]:
+    """
+    Return the most recent `max_turns` user/assistant message pairs from the
+    single conversation document, oldest-first, as {role, content} dicts
+    ready for Ollama's messages array (timestamp stripped -- /api/chat has no
+    use for it).
+
+    Deterministic and non-model-controlled, like save_turn() -- called
+    unconditionally by main.py before agent.run(), not a tool call. Bounded
+    by design (see CLAUDE.md hard constraints / specs.md Phase 7): a
+    non-positive max_turns returns [] rather than being used as a slice
+    limit, since both Python's list[-0:] and Mongo's $slice: 0 mean "the
+    whole array", not "nothing" -- silently reintroducing the exact
+    unbounded-history behavior this function exists to prevent.
+
+    Returns [] if no conversation document exists yet (fresh install, or
+    right after delete_conversation()) -- not an error.
+
+    Uses a $slice projection so only the last `max_turns * 2` messages are
+    ever pulled over the wire, since save_turn() lets `messages` grow
+    unboundedly and this runs on every /api/chat request.
+    """
+    if max_turns <= 0:
+        return []
+
+    limit = max_turns * 2
+    doc = await conversations.find_one(
+        sort=[("updated_at", -1)], projection={"messages": {"$slice": -limit}}
+    )
+    if doc is None:
+        return []
+
+    return [{"role": m["role"], "content": m["content"]} for m in doc.get("messages", [])]
 
 
 async def list_conversations(limit: int = 10) -> list[dict[str, Any]]:

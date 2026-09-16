@@ -5,7 +5,8 @@ Exposes POST /api/chat, matching the frontend's contract:
   Request:  { "message": "<user text>" }
   Response: { "response": "<agent's reply>" }
 
-Messages are forwarded to a local LLM served by Ollama (see agent.py).
+Messages are forwarded to a local LLM served by Ollama (see agent.py), along with
+a bounded window of recent conversation history (see db.get_recent_history).
 Every turn is auto-saved to MongoDB (see db.py) regardless of the LLM's behavior.
 """
 
@@ -152,8 +153,18 @@ async def chat(request: Request) -> ChatResponse | JSONResponse:
         ).model_dump(),
         )
 
+    # Fetched before agent.run() and before save_turn() below persists this
+    # turn, so the current message is never duplicated into its own history.
+    history: list[dict[str, str]] = []
     try:
-        reply = await agent.run(chat_request.message)
+        history = await db.get_recent_history()
+    except Exception:
+        logger.exception(
+            "Failed to load conversation history from MongoDB; continuing with empty history for this turn"
+        )
+
+    try:
+        reply = await agent.run(chat_request.message, history=history)
     except agent.AgentError as exc:
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,

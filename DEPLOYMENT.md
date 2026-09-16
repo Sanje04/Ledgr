@@ -39,6 +39,9 @@ Fill in `backend/.env.production`:
   this deployment (e.g. a Cloudflare Tunnel) and forward plain HTTP to the
   frontend container's port 80; setting this to `true` would make the
   backend redirect its own internal HTTP traffic and break that.
+- `MAX_HISTORY_TURNS` — optional, defaults to 5 if left unset. Number of
+  recent conversation turns replayed to the model as context on each chat
+  call (see `backend/specs.md` Phase 7).
 
 This file is gitignored — never commit it with real credentials.
 

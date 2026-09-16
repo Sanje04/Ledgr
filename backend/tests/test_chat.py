@@ -26,7 +26,11 @@ def no_real_mongo(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_save_turn(*args: object, **kwargs: object) -> None:
         return None
 
+    async def fake_get_recent_history(*args: object, **kwargs: object) -> list[dict[str, str]]:
+        return []
+
     monkeypatch.setattr(db, "save_turn", fake_save_turn)
+    monkeypatch.setattr(db, "get_recent_history", fake_get_recent_history)
 
 
 @pytest.mark.live_llm
@@ -95,3 +99,42 @@ def test_startup_survives_mongo_outage(monkeypatch: pytest.MonkeyPatch) -> None:
     # A fast 502 from the deliberately-unreachable Ollama URL proves the app
     # came up and is serving requests despite ensure_indexes() having failed.
     assert response.status_code == 502
+
+
+def test_history_is_fetched_and_passed_to_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    sentinel_history = [{"role": "user", "content": "earlier"}, {"role": "assistant", "content": "earlier reply"}]
+    captured: dict[str, object] = {}
+
+    async def fake_get_recent_history(*args: object, **kwargs: object) -> list[dict[str, str]]:
+        return sentinel_history
+
+    async def fake_run(message: str, history: list[dict[str, str]] | None = None) -> str:
+        captured["history"] = history
+        return "reply"
+
+    monkeypatch.setattr(db, "get_recent_history", fake_get_recent_history)
+    monkeypatch.setattr(agent, "run", fake_run)
+
+    response = client.post("/api/chat", json={"message": "hello"})
+
+    assert response.status_code == 200
+    assert captured["history"] == sentinel_history
+
+
+def test_history_fetch_failure_degrades_to_empty_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def failing_get_recent_history(*args: object, **kwargs: object) -> list[dict[str, str]]:
+        raise Exception("mongo unreachable")
+
+    async def fake_run(message: str, history: list[dict[str, str]] | None = None) -> str:
+        captured["history"] = history
+        return "reply"
+
+    monkeypatch.setattr(db, "get_recent_history", failing_get_recent_history)
+    monkeypatch.setattr(agent, "run", fake_run)
+
+    response = client.post("/api/chat", json={"message": "hello"})
+
+    assert response.status_code == 200
+    assert captured["history"] == []

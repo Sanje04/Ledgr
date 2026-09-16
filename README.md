@@ -172,6 +172,6 @@ See [`backend/specs.md`](backend/specs.md) (Phase 4) for the data model, tool co
 - [x] Agent tool-calling for history operations (list/search/delete conversations)
 - [x] Mock bank accounts/transactions domain with agent tool-calling (list/search/summarize) and a read-only transactions panel in the UI
 - [ ] Frontend updated to load history from the backend instead of `localStorage`
-- [ ] Multi-turn conversation context passed to the model
+- [x] Multi-turn conversation context passed to the model, bounded to a configurable number of recent turns
 
 See [`backend/specs.md`](backend/specs.md) and [`ui/specs.md`](ui/specs.md) for the original design specs each side was built from.

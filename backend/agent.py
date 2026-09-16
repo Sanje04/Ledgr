@@ -19,6 +19,10 @@ This cap is deliberate, not an oversight: a question needing two tool calls (e.g
 "what's my balance and how much did I spend on dining") only gets one half answered
 per turn, same as today's behavior with the conversation-history tools. Don't make
 this recursive without re-reading specs.md Phase 3/4.
+
+run(message, history=None) seeds `messages` with a bounded window of recent turns
+(see db.get_recent_history and specs.md Phase 7) before the loop above runs; the
+loop itself is unchanged and just keeps appending to whatever `messages` it's given.
 """
 
 import json
@@ -299,19 +303,19 @@ async def _call_ollama(messages: list[dict[str, Any]], tools: list[dict[str, Any
     return response.json()
 
 
-async def run(message: str) -> str:
-    # The agent is single-turn (see specs.md roadmap) and SYSTEM_PROMPT is a
-    # static constant, so nothing else tells the model what day it is --
-    # required for it to resolve relative dates ("this month", "last week")
-    # in transaction questions. Interpolated per call, not baked into the
-    # constant, so SYSTEM_PROMPT stays the stable, docs-referenced persona text.
+async def run(message: str, history: list[dict[str, str]] | None = None) -> str:
+    # SYSTEM_PROMPT is a static constant, so nothing else tells the model what
+    # day it is -- required for it to resolve relative dates ("this month",
+    # "last week") in transaction questions. Interpolated per call, not baked
+    # into the constant, so SYSTEM_PROMPT stays the stable, docs-referenced
+    # persona text.
     today = datetime.now(timezone.utc).date().isoformat()
     system_content = f"{SYSTEM_PROMPT}\n\nToday's date is {today}. Resolve relative dates (e.g. \"this month\", \"last week\") against this."
 
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_content},
-        {"role": "user", "content": message},
-    ]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_content}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": message})
 
     first = await _call_ollama(messages, tools=TOOLS)
     assistant_message = first["message"]
