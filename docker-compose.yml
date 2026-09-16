@@ -7,6 +7,27 @@ services:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
+    # No healthcheck condition on purpose: the backend tolerates the MCP server
+    # not being ready yet (startup discovery fails soft, the next /api/chat
+    # retries it) -- see backend/main.py's on_startup and specs.md Phase 8.
+    depends_on:
+      - mcp
+    restart: unless-stopped
+
+  # MCP tool server (specs.md Phase 8): serves the agent's six tools over MCP
+  # streamable HTTP. Same posture as `backend` -- built from this repo, same
+  # env_file, internal-network-only via `expose` (nothing published to the host,
+  # since nothing outside the compose network should reach it).
+  mcp:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.mcp
+    env_file:
+      - ./backend/.env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "9000"
     restart: unless-stopped
 
   frontend:
