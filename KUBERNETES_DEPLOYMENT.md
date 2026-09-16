@@ -5,6 +5,17 @@ single-node Kubernetes cluster, using only free services. It's a plan
 document — no manifests exist yet. Follow the steps in order; each one
 builds on the last.
 
+> **Predates Phase 8.** This plan was written when the app was two containers.
+> It's now three: `backend/specs.md` Phase 8 added an `mcp` service (the MCP
+> tool server, `backend/Dockerfile.mcp`) that the backend talks to over
+> streamable HTTP. Nothing below is wrong, but it's incomplete — when you
+> execute this plan you'll need a third `Deployment`/`Service` pair for `mcp`
+> (ClusterIP, port 9000, not externally reachable, `MCP_HOST=0.0.0.0`), a third
+> image in the CI `build-and-push` job, and `MCP_SERVER_URL` pointing at the
+> `mcp` Service's DNS name in the backend's `ConfigMap`. No readiness gate is
+> needed: the backend tolerates the tool server being absent or slow to start
+> (see Phase 8), so a plain `Deployment` with no `initContainer` wait is correct.
+
 ## Architecture
 
 ```

@@ -339,3 +339,106 @@ Replaces Phase 2's single-turn behavior: `agent.run()` now replays a bounded win
 Only exercised via hermetic pytest (mocked `_call_ollama`/`conversations` collection) as of this writing — not yet run against a real Ollama model and a real MongoDB instance. Two specific things to check when it is:
 - **Context window.** Worst case, the prompt is now `system` (persona + all 6 tool schemas) + up to 10 history messages (each up to `MAX_MESSAGE_LENGTH` = 4000 chars) + the current message — meaningfully larger than Phase 2's two-message prompt. Ollama silently truncates a prompt that exceeds the model's effective `num_ctx` rather than erroring, which could drop the system message (and with it the tool schemas and the interpolated date) with no visible error. Before relying on this in practice, confirm the configured model's effective context window (`ollama show <model>` / `GET /api/show`) comfortably covers the worst case above; if it doesn't, the fix is a `"options": {"num_ctx": N}` addition to `_call_ollama`'s payload — don't add it speculatively before confirming it's actually needed.
 - **Delete-confirmation interaction.** With history now replayed, the model sees its own "do you want me to delete?" turn, so a bare "yes" reply is more likely to trigger a `delete_conversation` tool call than before — which `_is_delete_confirmed` still rejects (no delete-intent word in "yes" alone), producing a visible ask → "yes" → re-ask loop that didn't happen when the agent was memoryless (see the Phase 3 confirmation gate above — deliberately unchanged). Confirm this live; if the loop is disruptive, the fix is `SYSTEM_PROMPT` wording (tell the model what a valid confirmation reply looks like), not relaxing the backend gate.
+
+---
+
+## Phase 8: MCP Tool Server (implemented)
+
+### Overview
+Moves the agent's six tools out of the FastAPI backend into a standalone **MCP (Model Context Protocol) server** running as its own process, and turns the backend into an MCP **client** that discovers those tools at startup instead of hardcoding them. Supersedes Phase 3/4's "one `agent.TOOLS` list, one `agent._execute_tool` dispatch" arrangement; the tools themselves, their schemas, and their MongoDB queries are unchanged in behavior.
+
+What this buys, concretely: adding a tool is now a one-file change in `mcp_server.py` with **no backend edit at all** — the backend learns about it on the next boot. What it costs: a second process to run, and a network hop per tool call. The `POST /api/chat` contract, the one-tool-per-turn cap, the deterministic delete guard, and the existing two error paths are all preserved, so **the frontend required zero changes.**
+
+RAG and RBAC over this server are deliberately out of scope — separate, later specs.
+
+### Process split
+```
+ui ──POST /api/chat──▶ backend (main.py, agent.py) ──MCP streamable HTTP──▶ mcp (mcp_server.py)
+                              │                                                    │
+                              │ save_turn / get_recent_history                     │ six tools
+                              │ ensure_indexes / import_transactions               │
+                              ▼                                                    ▼
+                          MongoDB  ◀───── one shared db.py, one Motor pool per process ─────▶  MongoDB
+```
+
+`db.py` stays **one module imported by both processes**, not copied or reimplemented. Each process constructs its own Motor client and connection pool against the same `MONGODB_URI`/`MONGODB_DB_NAME`. `list_accounts` and `search_transactions` are called by both sides — the MCP server for the agent's tool calls, the backend for the display-only `GET /api/transactions` — and that's fine; they're reads.
+
+The split is by *who controls the call*, matching the four-paths rule in `CLAUDE.md`:
+
+| Path | Owner | Why |
+|---|---|---|
+| `ensure_indexes`, `save_turn`, `get_recent_history`, `import_transactions` | **Backend**, direct `db.py` calls | Deterministic and non-model-controlled. Exposing them over MCP would put them within the model's reach, which is exactly what Phase 3's auto-save design exists to prevent. |
+| The six Tool_Set functions | **MCP server** | Model-controlled. |
+| `GET /api/transactions` | **Backend**, direct `db.py` calls | Display-only, not tool-calling — unchanged from Phase 4, and independent of MCP server state. |
+
+`agent.py` now contains no `db` call and no dispatch branch for any tool. It imports `db` for exactly one thing: the `CATEGORIES` constant interpolated into `SYSTEM_PROMPT`, which is built at import time, before any discovery has happened.
+
+### Design
+- **`mcp_server.py`** — a standalone Starlette/uvicorn process serving MCP streamable HTTP at `MCP_PATH` (`/mcp`).
+  - Built on the SDK's **low-level `mcp.server.lowlevel.Server`, not `FastMCP`**. `FastMCP` derives each tool's `inputSchema` from the Python function signature, which would silently change the schemas the model sees (`str | None` becomes `anyOf: [string, null]`) and offers no clean way to attach `db.CATEGORIES` as an `enum`. `TOOL_DEFINITIONS` states all six schemas literally, moved from the old `agent.TOOLS` unchanged, so the model's behavior is identical to Phase 4's. Schema exactness is the point of the file, so the API that lets us write schemas beats the one that infers them.
+  - `category`'s enum reads `db.CATEGORIES` directly in both tools that declare it, so adding a category updates both wire schemas with no other edit (asserted in `tests/test_mcp_server_tools.py`).
+  - `dispatch_tool(name, arguments)` validates arguments against the declared schema with `jsonschema`, then runs the handler. **It never raises.** An unknown tool, a schema violation (missing `required`, wrong JSON type, out-of-enum `category`), and a MongoDB failure all return `{"error": ...}` — the shape `agent.py` already feeds back to the model. Validation is done here rather than via the SDK's `call_tool(validate_input=True)` because that reports rejections as an `isError` text blob; doing it ourselves keeps every failure in the one `error`-field shape.
+  - `stateless=True` on the session manager: every request is self-contained, so a container restart loses no session and `mcp_client` can open a fresh connection per call.
+  - Served via an exact `Route`, **not a `Mount`**. `Mount("/mcp")` only matches paths *under* `/mcp`, so a request to `/mcp` itself falls through to Starlette's `redirect_slashes` and costs every MCP call an extra 307 round-trip — observed in the access log during this phase's build, and fixed. The route's endpoint is a small callable *class* (`_StreamableHTTPEndpoint`) because Starlette wraps bare async functions in its request/response helper, which would consume the request before the session manager gets the raw ASGI streams it needs.
+  - Does **not** call `ensure_indexes`, `save_turn`, `get_recent_history`, or `import_transactions`, and implements **no confirmation logic** — it deletes when `delete_conversation` is called (see below).
+- **`mcp_client.py`** — the backend's half. Replaces `agent.TOOLS` entirely.
+  - `discover_tools()` lists tools over MCP within a 10s timeout and caches them for the process lifetime. `_to_ollama_schema` is the single place the MCP `{name, description, inputSchema}` shape is translated into Ollama's `{"type": "function", "function": {name, description, parameters}}` shape. A tool with no name, or an `inputSchema` that isn't a JSON Schema object, is logged and excluded — discovery keeps the tools it *can* use rather than failing wholesale on one bad entry.
+  - `ensure_tools()` returns the cache, retrying discovery once per request while it's empty. This is what makes a failed *startup* discovery recoverable without restarting the backend.
+  - `call_tool()` invokes over MCP with a 15s bound and, like `dispatch_tool`, **never raises** — unreachable server, timeout, `isError` result, and unparseable payload all become `{"error": ...}`.
+  - A fresh connection per operation rather than one long-lived `ClientSession`: the server is stateless, and sharing one session across concurrent `/api/chat` requests would need locking around a single duplex stream. Costs a round-trip, not worth the complexity at this scale.
+- **`agent.py`** — `_execute_tool` shrank to routing. It applies the delete gate, refuses any tool the server didn't advertise, then hands off to `mcp_client.call_tool`. `run()` calls `mcp_client.ensure_tools()` and passes the result to Ollama; an empty list means the model is called with **no tools** and answers directly. The one-round loop is otherwise untouched.
+- **`main.py`** — `on_startup` awaits `mcp_client.discover_tools()` after `ensure_indexes()`, in the same fail-soft posture: it can't raise, so a tool server that isn't up yet leaves the cache empty and startup completes anyway.
+
+### The delete gate stays in the client, on purpose
+`_is_delete_confirmed` is **not** moved to `mcp_server.py` alongside the tool it guards. It has to be a pure function of the raw current-turn user message, and the MCP server never sees that message — it only receives the arguments the model chose. So the check runs in `agent._execute_tool` *before* any invocation is sent: an unconfirmed delete produces zero MCP traffic. `mcp_server.py` deliberately implements no confirmation logic of its own; two sources of truth for a destructive action is worse than one. Protecting the MCP server from *other* MCP clients is a different problem (RBAC, a later phase) and is out of scope here.
+
+### Error paths: MCP failure is tool-level, never a gateway failure
+The two error paths from `CLAUDE.md` stay two, and MCP joins the existing tool-error one rather than adding a third:
+- **Ollama unreachable/erroring** → `agent.AgentError` → **HTTP 502** with `{"error": string}`. Unchanged, and still the *only* thing that produces a 502.
+- **MCP server unreachable, timing out, erroring, or returning something unparseable** → an `{"error": ...}` tool result, fed to the model as the `tool` message of the existing single round-trip → **HTTP 200** with `{"response": string}`. Same shape a MongoDB tool error already used in Phase 4, because from the model's point of view it *is* the same event: the lookup didn't work, explain that to the user.
+- **`GET /api/transactions`** → **HTTP 503** on a database error only, unchanged and independent of MCP server state.
+
+The 15s invocation bound exists so a hung MCP server can't push a turn past `_call_ollama`'s 170s budget.
+
+### Config (`backend/.env`, `backend/.env.production`)
+- `MCP_SERVER_URL` — the **one** variable the backend reads to find the MCP server. Unset or empty falls back to `http://mcp:9000/mcp`, addressing `docker-compose.yml`'s service by name, so the compose path needs nothing set alongside it. Local dev outside Docker sets `http://127.0.0.1:9000/mcp`.
+- `MCP_HOST` / `MCP_PORT` — what `mcp_server.py` binds. `127.0.0.1`/`9000` for local dev; `0.0.0.0` in `.env.production` so the backend container can reach the mcp container.
+
+### Deployment (`docker-compose.yml`)
+A third service, `mcp`, matching `backend`'s posture exactly: built from `./backend` (via `Dockerfile.mcp`), same `env_file`, same `extra_hosts`, `restart: unless-stopped`, and `expose: 9000` with **no host port published** — nothing outside the compose network should reach it.
+
+`Dockerfile.mcp` builds from the same `./backend` context and the same `requirements.txt` rather than a directory of its own: `db.py` must stay one shared module, and a second requirements file would be a second place to keep the `mcp`/`starlette` pins in sync. It copies a deliberately narrower set than `backend/Dockerfile` — `mcp_server.py db.py`, with no `main.py` (this process serves no API of its own) and no `agent.py` (Ollama is the backend's dependency, not this one's).
+
+`backend` declares `depends_on: [mcp]` with **no healthcheck or readiness condition**, on purpose: readiness is handled by the fail-soft startup discovery plus the per-request retry described above, not by container ordering. Getting this wrong in the other direction would mean a slow-starting `mcp` container could block the whole API from serving.
+
+### Dependency pins (`requirements.txt`)
+`mcp` is held at **1.12.4** deliberately: 1.13+ requires `pydantic >= 2.11` and a `starlette` that `fastapi` 0.115 rejects, so moving up means bumping FastAPI and Pydantic in the same change. Two transitive pins exist for the same reason and are **not incidental** — remove either and `pip` breaks the backend:
+- `starlette==0.38.6` — unpinned, pip resolves 1.x for `mcp`, and `fastapi` 0.115 requires `<0.39`.
+- `sse-starlette==2.1.3` — 3.x requires `starlette >= 0.49.1`.
+
+`jsonschema==4.26.0` comes in with `mcp` anyway, pinned explicitly because `mcp_server.py` imports it directly.
+
+### Development steps
+1. ✅ `mcp_server.py` — six tool schemas moved verbatim from `agent.TOOLS`, `dispatch_tool` with `jsonschema` validation, stateless streamable-HTTP app on an exact route
+2. ✅ `mcp_client.py` — timeout-bounded discovery with an in-memory cache, MCP→Ollama schema translation, never-raising `call_tool`
+3. ✅ `agent.py` — `TOOLS` and the `db` dispatch deleted; `_execute_tool` reduced to the delete gate + membership check + MCP hand-off; `run()` sources tools from the cache
+4. ✅ `main.py` — startup discovery, fail-soft, after `ensure_indexes()`
+5. ✅ `docker-compose.yml` `mcp` service + `backend/Dockerfile.mcp`; `MCP_SERVER_URL`/`MCP_HOST`/`MCP_PORT` added to `.env.example` and `.env.production(.example)`
+6. ✅ Tests: `tests/test_agent_tools.py` retargeted to `mcp_server.dispatch_tool` as `tests/test_mcp_server_tools.py` (the Phase 4 assertions moved with the code, plus new schema-rejection cases); `tests/test_mcp_tool_calling.py` (new) covers the three Phase 8 behaviors; autouse MCP stubs added to `tests/test_chat.py` and `tests/test_agent_run.py` to keep them hermetic
+
+### Verified behavior (2026-09-16)
+Unlike Phases 5–7 above, this phase **was** exercised live, against a real `mcp_server.py` process, a real local Ollama (`gemma4:latest`), and a real local MongoDB holding the seeded demo data. Confirmed live:
+- **Discovery and schema parity.** All six tools discovered over streamable HTTP; every discovered `parameters` object compared equal to the corresponding `TOOL_DEFINITIONS[...]["inputSchema"]`, and the `category` enum arrived over the wire as `db.CATEGORIES` in order.
+- **End-to-end tool call.** `POST /api/chat` "how much did I spend on Dining?" → Ollama requested `get_spending_summary` → invoked over MCP → MongoDB → `$108.59 / 3 transactions`, matching a direct MCP invocation of the same tool byte for byte.
+- **All four rejection paths**, each returning `{"error": ...}` with no DB call: out-of-enum `category`, missing `required` property, wrong JSON type, unknown tool name.
+- **MCP server unreachable → HTTP 200.** With the `mcp` process killed mid-session, a balance question returned 200 and a natural-language "couldn't retrieve that right now" reply, not a 502.
+- **Fail-soft startup + recovery without restart.** Backend booted with the MCP server down: startup completed, `/api/chat` served a normal reply with no tools. The MCP server was then started and the *next* request discovered the tools and answered a Groceries total correctly — no backend restart.
+- **Delete gate.** "Delete my conversation history." (intent, no confirmation token) produced a re-ask reply and **zero** `CallToolRequest` entries in the MCP server's log for that turn.
+- **The 307 redirect fix**, by observing the access log before and after the `Mount`→`Route` change.
+
+Confirmed hermetically only (`pytest -m "not live_llm"`, 39 passed, no Ollama/MongoDB/MCP process needed):
+- `dispatch_tool`'s argument pass-through, `limit` default, and DB-error-to-error-result contract.
+- The `role: "tool"` message content handed to the second Ollama call, and that the second call is made with `tools=None`.
+- That an unconfirmed `delete_conversation` reaches `mcp_client` zero times (the live check above confirmed zero requests server-side; this confirms zero *calls* client-side).
+
+**Not verified:** the `docker compose up --build` path. The compose file, `Dockerfile.mcp`, and `.env.production` keys were written but never built or run — the live verification above was all bare-process on the host, so `host.docker.internal`, the `mcp` service-name DNS resolution, and the three-container startup within 120s remain unconfirmed. Same caveat as Phase 6, which was never live-verified either. Run it before relying on it.

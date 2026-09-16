@@ -2,11 +2,12 @@
 
 This covers running Tender via `docker-compose.yml` on a self-hosted machine,
 as opposed to the manual `.venv`/`npm run dev` setup in [README.md](README.md#getting-started).
-It builds and runs two containers — the FastAPI backend and the built React
-frontend served by nginx (which also reverse-proxies `/api/` to the backend,
-see `ui/nginx.conf`) — and expects MongoDB and Ollama to keep running outside
-Docker, the same external-service roles they already have in local dev (see
-`CLAUDE.md`).
+It builds and runs three containers — the FastAPI backend, the MCP tool server
+that hosts the agent's six tools (`backend/mcp_server.py`, see
+`backend/specs.md` Phase 8), and the built React frontend served by nginx
+(which also reverse-proxies `/api/` to the backend, see `ui/nginx.conf`) — and
+expects MongoDB and Ollama to keep running outside Docker, the same
+external-service roles they already have in local dev (see `CLAUDE.md`).
 
 ## 1. MongoDB: use Atlas, not a container
 
@@ -42,6 +43,12 @@ Fill in `backend/.env.production`:
 - `MAX_HISTORY_TURNS` — optional, defaults to 5 if left unset. Number of
   recent conversation turns replayed to the model as context on each chat
   call (see `backend/specs.md` Phase 7).
+- `MCP_SERVER_URL` / `MCP_HOST` / `MCP_PORT` — the MCP tool server (Phase 8).
+  `MCP_SERVER_URL=http://mcp:9000/mcp` addresses the `mcp` container by its
+  compose service name, and is also the built-in default, so it can be left
+  out entirely. `MCP_HOST` **must** be `0.0.0.0` here (not `127.0.0.1`) so the
+  backend container can reach the mcp container. Compose gives this same
+  `env_file` to both services, which is why all three keys live in one file.
 
 This file is gitignored — never commit it with real credentials.
 
@@ -51,13 +58,27 @@ This file is gitignored — never commit it with real credentials.
 docker compose up -d --build
 ```
 
-This builds `backend/Dockerfile` (installs `requirements.txt`, runs
-`uvicorn` with `--proxy-headers` so the per-client-IP rate limiter in
-`main.py` sees real client IPs through nginx rather than nginx's own
-container IP) and `ui/Dockerfile` (multi-stage: `npm run build`, then
-serves `dist/` from `nginx:alpine`). The frontend is published on host port
-80; the backend is only reachable from within the compose network (nginx
-proxies to it), not published directly.
+This builds three images:
+- `backend/Dockerfile` — installs `requirements.txt`, runs `uvicorn` with
+  `--proxy-headers` so the per-client-IP rate limiter in `main.py` sees real
+  client IPs through nginx rather than nginx's own container IP.
+- `backend/Dockerfile.mcp` — same `./backend` build context and the same
+  `requirements.txt` (so `db.py` stays one shared file rather than being
+  copied), but copies only `mcp_server.py db.py` and runs the tool server.
+- `ui/Dockerfile` — multi-stage: `npm run build`, then serves `dist/` from
+  `nginx:alpine`.
+
+The frontend is published on host port 80. Both the backend and the mcp
+service are only reachable from within the compose network (nginx proxies to
+the backend; the backend is the only thing that talks to mcp) — neither is
+published directly.
+
+`backend` declares `depends_on: [mcp]` but **not** a healthcheck condition, so
+compose won't wait for the tool server to be ready. That's intentional: the
+backend tolerates it, retrying tool discovery on each chat request until it
+succeeds (see `backend/specs.md` Phase 8). If you see the agent answering but
+never using its tools, check `docker compose logs mcp` — the backend will keep
+serving regardless.
 
 ## 4. Get your data in
 
