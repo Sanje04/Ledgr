@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 import agent
 import db
 import main
+import mcp_client
 
 client = TestClient(main.app)
 
@@ -31,6 +32,21 @@ def no_real_mongo(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(db, "save_turn", fake_save_turn)
     monkeypatch.setattr(db, "get_recent_history", fake_get_recent_history)
+
+
+@pytest.fixture(autouse=True)
+def no_real_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 8: agent.run() and main.py's startup both ask mcp_client for tools.
+    Stub discovery to "no tools available" so this suite stays hermetic and
+    doesn't spend a connection attempt per request on an MCP server that isn't
+    running -- the tools themselves are covered in test_mcp_tool_calling.py."""
+
+    async def no_tools() -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(mcp_client, "_cached_tools", [])
+    monkeypatch.setattr(mcp_client, "discover_tools", no_tools)
+    monkeypatch.setattr(mcp_client, "ensure_tools", no_tools)
 
 
 @pytest.mark.live_llm

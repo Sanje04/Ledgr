@@ -5,15 +5,21 @@ Ollama may be running on a different machine on the network (see OLLAMA_BASE_URL
 
 The agent gives the model tool-calling access to two independent domains in MongoDB:
   - Conversation history (list_conversations, search_history, delete_conversation —
-    see db.py and specs.md Phase 3).
+    see specs.md Phase 3).
   - Mock bank accounts/transactions (list_accounts, search_transactions,
-    get_spending_summary — see db.py and specs.md Phase 4).
+    get_spending_summary — see specs.md Phase 4).
+
+As of specs.md Phase 8 this module no longer *implements* those tools, and holds no
+tool schemas of its own. Both the schemas and the execution live in a separate MCP
+server process (mcp_server.py); this module asks mcp_client for whatever tools were
+discovered at startup and dispatches every call over MCP. The one exception is the
+delete-confirmation gate below, which stays here on purpose.
 
 Both domains share one tool-calling loop, capped at one tool round-trip per turn:
-  1. Call Ollama with the message + tool schemas. If it doesn't request a tool, return
-     its content directly.
-  2. Otherwise execute the first requested tool against MongoDB, send the result back
-     as a "tool" message, and make a second call (no tools this time) so the model
+  1. Call Ollama with the message + the discovered tool schemas. If it doesn't
+     request a tool, return its content directly.
+  2. Otherwise invoke the first requested tool over MCP, send the result back as a
+     "tool" message, and make a second call (no tools this time) so the model
      composes the final natural-language reply.
 This cap is deliberate, not an oversight: a question needing two tool calls (e.g.
 "what's my balance and how much did I spend on dining") only gets one half answered
@@ -32,7 +38,12 @@ from typing import Any
 
 import httpx
 
+# `db` is imported for the CATEGORIES constant in SYSTEM_PROMPT only -- the model
+# needs the category names spelled out in prose, and SYSTEM_PROMPT is built at
+# import time, before any tool discovery has happened. This module makes no db
+# call and owns no tool dispatch (specs.md Phase 8); everything else goes via MCP.
 import db
+import mcp_client
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
@@ -55,169 +66,17 @@ SYSTEM_PROMPT = (
 DELETE_INTENT_WORDS = ("delete", "remove", "clear", "wipe")
 CONFIRM_TOKENS = ("confirm", "yes", "sure", "please")
 
-TOOLS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "list_conversations",
-            "description": (
-                "List recent saved conversations, most recently updated first. "
-                "Use this when the user asks what conversations or chat history exist."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of conversations to return.",
-                    }
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_history",
-            "description": (
-                "Search past conversation messages for a keyword or phrase. Use this "
-                "when the user asks what was discussed previously, e.g. "
-                "'what did we talk about yesterday?'."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The keyword or phrase to search for in past messages.",
-                    }
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_conversation",
-            "description": (
-                "Permanently delete the user's saved conversation history. Only call "
-                "this when the user has explicitly asked to delete/clear/remove their "
-                "history AND clearly confirmed they want to proceed in the same message."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_accounts",
-            "description": (
-                "List the user's financial account(s) with their current balances "
-                "and names. Use this for balance questions, e.g. 'what's my "
-                "balance?', or to find out what an account is called."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_transactions",
-            "description": (
-                "Look up individual transactions, optionally filtered by account, "
-                "category, merchant, date range, or amount range. Use this for "
-                "specific lookups, e.g. 'show me transactions from Amazon' or "
-                "'what did I buy last week'. Do NOT use this to compute totals — "
-                "use get_spending_summary for that."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "account": {
-                        "type": "string",
-                        "description": (
-                            "Restrict results to this account (its id, from "
-                            "list_accounts). Usually unnecessary — there's normally "
-                            "just one account."
-                        ),
-                    },
-                    "category": {
-                        "type": "string",
-                        "enum": db.CATEGORIES,
-                        "description": "Restrict results to this category.",
-                    },
-                    "merchant": {
-                        "type": "string",
-                        "description": "Filter by merchant name (partial match), e.g. 'Amazon'.",
-                    },
-                    "start_date": {
-                        "type": "string",
-                        "description": "Only transactions on/after this date (YYYY-MM-DD).",
-                    },
-                    "end_date": {
-                        "type": "string",
-                        "description": "Only transactions on/before this date (YYYY-MM-DD).",
-                    },
-                    "min_amount": {
-                        "type": "number",
-                        "description": "Only transactions with amount >= this value.",
-                    },
-                    "max_amount": {
-                        "type": "number",
-                        "description": "Only transactions with amount <= this value.",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of transactions to return (default 20).",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_spending_summary",
-            "description": (
-                "Compute total spending and a category breakdown, optionally "
-                "filtered by category, account, or date range. Always use this for "
-                "questions asking for a total/sum — e.g. 'how much did I spend on "
-                "groceries in August' — rather than adding up individual "
-                "transactions yourself. Excludes transfers between the user's own "
-                "accounts and income by default."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "enum": db.CATEGORIES,
-                        "description": "Restrict to this category.",
-                    },
-                    "account": {
-                        "type": "string",
-                        "description": (
-                            "Restrict to this account (its id, from list_accounts). "
-                            "Usually unnecessary — there's normally just one account."
-                        ),
-                    },
-                    "start_date": {
-                        "type": "string",
-                        "description": "Only spending on/after this date (YYYY-MM-DD).",
-                    },
-                    "end_date": {
-                        "type": "string",
-                        "description": "Only spending on/before this date (YYYY-MM-DD).",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-]
+# Returned instead of invoking delete_conversation when the confirmation gate
+# rejects the turn. Kept as a module constant so the wording is asserted against
+# in one place rather than duplicated in tests.
+NOT_CONFIRMED_RESULT: dict[str, Any] = {
+    "deleted": False,
+    "reason": (
+        "Not confirmed yet. Ask the user to explicitly confirm "
+        "deletion (e.g. 'yes, please delete it') before calling "
+        "this tool again."
+    ),
+}
 
 
 class AgentError(Exception):
@@ -234,49 +93,31 @@ def _is_delete_confirmed(user_message: str) -> bool:
 
 
 async def _execute_tool(name: str, arguments: dict[str, Any], user_message: str) -> dict[str, Any]:
-    try:
-        if name == "list_conversations":
-            limit = arguments.get("limit") or 10
-            return {"conversations": await db.list_conversations(limit=limit)}
-        if name == "search_history":
-            query = arguments.get("query", "")
-            return {"results": await db.search_history(query)}
-        if name == "delete_conversation":
-            if not _is_delete_confirmed(user_message):
-                return {
-                    "deleted": False,
-                    "reason": (
-                        "Not confirmed yet. Ask the user to explicitly confirm "
-                        "deletion (e.g. 'yes, please delete it') before calling "
-                        "this tool again."
-                    ),
-                }
-            return await db.delete_conversation()
-        if name == "list_accounts":
-            return {"accounts": await db.list_accounts()}
-        if name == "search_transactions":
-            return {
-                "transactions": await db.search_transactions(
-                    account=arguments.get("account"),
-                    category=arguments.get("category"),
-                    merchant=arguments.get("merchant"),
-                    start_date=arguments.get("start_date"),
-                    end_date=arguments.get("end_date"),
-                    min_amount=arguments.get("min_amount"),
-                    max_amount=arguments.get("max_amount"),
-                    limit=arguments.get("limit") or 20,
-                )
-            }
-        if name == "get_spending_summary":
-            return await db.get_spending_summary(
-                category=arguments.get("category"),
-                account=arguments.get("account"),
-                start_date=arguments.get("start_date"),
-                end_date=arguments.get("end_date"),
-            )
-        return {"error": f"Unknown tool: {name}"}
-    except Exception as exc:
-        return {"error": f"Database error while executing {name}: {exc}"}
+    """
+    Route one model-requested tool call to the MCP server.
+
+    Two things happen before anything leaves the process:
+
+    1. **The delete gate.** `delete_conversation` is checked against the raw
+       current-turn user message *first*, so an unconfirmed delete sends no
+       invocation at all. This gate stays here, in the client, rather than moving
+       to mcp_server.py with the tool itself: it must be a pure function of the
+       user's own words, and the MCP server never sees them (it only receives the
+       arguments the model chose). See CLAUDE.md hard constraints.
+    2. **A membership check.** A tool the server didn't advertise is refused
+       locally, which also covers the "discovery failed, cache is empty, model
+       hallucinated a tool call anyway" case.
+
+    Never raises -- MCP failures come back from mcp_client as `{"error": ...}`, and
+    the caller feeds that to the model as a normal tool result.
+    """
+    if name == "delete_conversation" and not _is_delete_confirmed(user_message):
+        return dict(NOT_CONFIRMED_RESULT)
+
+    if name not in mcp_client.cached_tool_names():
+        return {"error": f"Unknown tool: {name}. It is not available on the tool server."}
+
+    return await mcp_client.call_tool(name, arguments)
 
 
 async def _call_ollama(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> dict[str, Any]:
@@ -317,7 +158,12 @@ async def run(message: str, history: list[dict[str, str]] | None = None) -> str:
         messages.extend(history)
     messages.append({"role": "user", "content": message})
 
-    first = await _call_ollama(messages, tools=TOOLS)
+    # Cached after the first success; retries discovery once per request while the
+    # cache is empty. An empty list means "MCP server unavailable" -- call Ollama
+    # with no tools and let it answer directly rather than failing the turn.
+    tools = await mcp_client.ensure_tools()
+
+    first = await _call_ollama(messages, tools=tools or None)
     assistant_message = first["message"]
     tool_calls = assistant_message.get("tool_calls")
 

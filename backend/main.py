@@ -26,6 +26,7 @@ load_dotenv()
 
 import agent
 import db
+import mcp_client
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,15 @@ async def on_startup() -> None:
         await db.ensure_indexes()
     except Exception:
         logger.exception("Failed to ensure MongoDB indexes at startup")
+
+    # Discover the agent's tools from the MCP server (specs.md Phase 8). Same
+    # posture as ensure_indexes above: mcp_client.discover_tools() never raises,
+    # so a tool server that isn't up yet leaves the cache empty and startup
+    # completes anyway -- the next /api/chat retries discovery once, and until it
+    # succeeds the model is simply called with no tools. This is why
+    # docker-compose.yml's `depends_on` deliberately has no healthcheck
+    # condition: readiness is handled here, not by container ordering.
+    await mcp_client.discover_tools()
 
 
 # Enable CORS for local dev so the Vite frontend (different port) can call this API.

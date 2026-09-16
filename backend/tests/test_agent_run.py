@@ -17,6 +17,20 @@ from typing import Any
 import pytest
 
 import agent
+import mcp_client
+
+
+@pytest.fixture(autouse=True)
+def no_real_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 8: run() now asks mcp_client for tools before calling Ollama. These
+    tests are about message-list construction, so short-circuit discovery to "no
+    tools" rather than letting each one spend a real connection attempt on an MCP
+    server that isn't running."""
+
+    async def no_tools() -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(mcp_client, "ensure_tools", no_tools)
 
 
 def test_run_inserts_history_between_system_and_current_message(monkeypatch: pytest.MonkeyPatch) -> None:
