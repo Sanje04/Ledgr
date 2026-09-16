@@ -1,0 +1,25 @@
+# MCP tool server (specs.md Phase 8) -- the second of the two backend processes.
+#
+# Built from this same ./backend directory, and from the same requirements.txt,
+# rather than from a directory of its own: db.py must stay one shared module
+# (each process opens its own Motor pool against the same MongoDB), and a second
+# requirements file would be a second place to keep the mcp/starlette pins in
+# sync. Cheap duplication of a base image beats a copy of db.py.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Deliberately narrower than backend/Dockerfile's copy: no main.py (this process
+# serves no HTTP API of its own) and no agent.py (Ollama is the backend's
+# dependency, not this one's). Just the MCP server and the shared data layer.
+COPY mcp_server.py db.py ./
+
+EXPOSE 9000
+
+# Host/port come from MCP_HOST/MCP_PORT (see mcp_server.py) so the endpoint is
+# config, not baked in -- run as a module rather than via uvicorn's CLI so that
+# env-driven binding stays in one place.
+CMD ["python", "mcp_server.py"]
