@@ -7,7 +7,9 @@ real statement export.
 
 Kept deliberately lean: one test proves the balance math and sign-from-type
 handling (the part most likely to be silently wrong on a new write path), one
-proves fail-fast validation rejects a bad row before anything is written.
+proves fail-fast validation rejects a bad row before anything is written, one
+covers merchant extraction from "[OP]" rows (the day-of-month padding bug),
+and one covers the keyword categorizer across a spread of categories.
 """
 
 import asyncio
@@ -95,3 +97,52 @@ def test_parse_import_csv_rejects_unknown_transaction_type() -> None:
 def test_import_transactions_requires_account_name() -> None:
     with pytest.raises(ValueError, match="Account name"):
         asyncio.run(db.import_transactions(STATEMENT_CSV, account_name="  ", account_type="checking"))
+
+
+def test_derive_merchant_strips_online_purchase_date_and_reference() -> None:
+    """
+    "[OP]" rows embed the posting date between the channel label and the
+    vendor, and pad single-digit days to two characters. That padding used to
+    land the same vendor on either side of the multi-space split depending on
+    the day of the month -- so a monthly subscription looked like a different
+    merchant every cycle and detect_recurring() could never flag it.
+    """
+    # Day 5 (space-padded, so a 2-space run) and day 17 (no padding) must
+    # yield the same merchant, and the per-payment reference must not survive.
+    assert db._derive_merchant("[OP]RECURRING PYMNT  5JUN2026SPOTIFY P433484C66") == "SPOTIFY"
+    assert db._derive_merchant("[OP]RECURRING PYMNT 17JUL2026SPOTIFY P4446E30CA") == "SPOTIFY"
+    # Trailing province code goes; the fixed-width "[PR]" path is unaffected.
+    assert db._derive_merchant("[OP]ONLINE PURCHASE  2JUN2026COINAMATIC ON") == "COINAMATIC"
+    assert (
+        db._derive_merchant("[PR]CAMPUS PIZZA             WATERLOO      ON    CAN")
+        == "CAMPUS PIZZA"
+    )
+
+
+def test_import_categorizes_by_merchant_keyword_and_credit_type() -> None:
+    """
+    Before this, everything but an e-transfer landed in "Other", which
+    collapsed the dashboard donut to a single slice -- see specs.md Phase 5.
+    """
+    csv_text = (
+        "Card,Transaction Type,Date Posted, Transaction Amount,Description\n"
+        "1234,DEBIT,20260601,-6.32,[PR]TIM HORTONS #4189      WATERLOO      ON    CAN\n"
+        "1234,DEBIT,20260602,-81.40,[PR]SOBEYS #649           WATERLOO      ON    CAN\n"
+        "1234,DEBIT,20260603,-10.78,[OP]RECURRING PYMNT  5JUN2026SPOTIFY P433484C66\n"
+        "1234,DEBIT,20260604,-650.00,[DS]WOCH            RLS/LOY\n"
+        "1234,DEBIT,20260605,-12.95,[SC]PLUS PLAN\n"
+        "1234,CREDIT,20260606,500.00,[CW]INTERAC ETRNSFR AD RECVD A PERSON 2026158111ABCDEF\n"
+        "1234,CREDIT,20260607,1200.00,[DN]PAYROLL DEPOSIT       SOME EMPLOYER\n"
+    )
+
+    categories = [row["category"] for row in db._parse_import_csv(csv_text)]
+
+    assert categories == [
+        "Dining",
+        "Groceries",
+        "Entertainment",
+        "Rent",
+        "Other",  # a bank fee matches nothing, and is not guessed at
+        "Transfer",  # money received from a person is moving, not earned
+        "Income",  # an unmatched credit is the only thing that falls through
+    ]

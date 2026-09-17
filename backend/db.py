@@ -72,17 +72,84 @@ CATEGORIES: list[str] = [
 NON_SPENDING_CATEGORIES = ("Transfer", "Income")
 
 # Imported statement rows carry no category column (see _parse_import_csv) --
-# everything lands here except the transfer-description heuristic below.
+# anything the heuristics below don't recognise lands here.
 DEFAULT_IMPORT_CATEGORY = "Other"
 
-# Outgoing legs matching these substrings (checked against the raw,
-# uppercased description) are categorized as Transfer instead of Other, so
-# they're excluded from get_spending_summary() by NON_SPENDING_CATEGORIES --
-# without this, an e-transfer-out or internal "TF" transfer would otherwise
-# inflate "spending" by its full amount. Deliberately narrow (just enough to
-# keep the demo statement's totals sane), not a general categorizer -- see
-# specs.md Phase 5.
-_TRANSFER_DESCRIPTION_MARKERS = ("ETRNSFR SENT", "] TF ")
+# Checked against the raw, uppercased description (not the derived merchant)
+# because "] TF " needs the bracket tag to disambiguate. Matching these makes
+# a row Transfer, so get_spending_summary() excludes it via
+# NON_SPENDING_CATEGORIES -- without it, an e-transfer would inflate
+# "spending" by its full amount. "ETRNSFR" deliberately covers both legs
+# ("ETRNSFR SENT" and "ETRNSFR AD RECVD"): money arriving from another person
+# is moving, not earned, so it stays out of the income figure too.
+_TRANSFER_DESCRIPTION_MARKERS = ("ETRNSFR", "] TF ")
+
+# A credit matching one of these is a reversal, not income -- see
+# _classify_import_category.
+_REFUND_MARKERS = ("REFUND", "RECURRING REF")
+
+# Merchant keywords -> category, first match wins, matched as substrings of
+# the uppercased description. Derived from the distinct merchants in a real
+# 220-row statement plus common chains, NOT invented: a keyword nobody's
+# statement contains is dead weight, and a wrong one is worse than "Other".
+#
+# Every value must be a member of CATEGORIES above -- the MCP tool schemas
+# declare that list as an enum (test_mcp_server_tools.py asserts they track
+# it) and ui/src/utils/categoryColors.ts pins a fixed hue per category, so
+# adding a category here is a three-file change, not a one-file change.
+#
+# Ordering note: Entertainment precedes Dining because "STEAM" contains
+# "TEA". Keep specific multi-word keys ahead of short generic ones.
+_CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "Rent",
+        # "RENT" alone is not a safe substring ("CURRENT", "PARENT"), so the
+        # generic keys here are all multi-word or unambiguous.
+        ("WOCH", "RENT PAYMENT", "PROPERTY MANAGEMENT", "PROPERTIES", "APARTMENTS",
+         "RESIDENCE", "LEASING", "LANDLORD"),
+    ),
+    (
+        "Healthcare",
+        ("SHOPPERS DRUG MART", "PHARMACY", "REXALL", "DENTAL", "CLINIC", "OPTICAL", "MEDICAL"),
+    ),
+    (
+        "Transport",
+        ("METROLINX", "GO TRANSI", "PRESTO", "UBER TRIP", "LYFT", "PETRO", "ESSO",
+         "SHELL", "TRANSIT", "PARKING"),
+    ),
+    (
+        "Entertainment",
+        ("SPOTIFY", "APPLE.COM", "DISCORD", "STEAM", "GOOGLE", "NETFLIX", "CINEPLEX",
+         "PLAYSTATION", "NINTENDO", "PRIME VIDEO", "ANTHROPIC", "MICROSOFT", "OPENAI",
+         "ADOBE", "GITHUB", "NOTION", "INTERNINSIDER"),
+    ),
+    (
+        "Groceries",
+        ("SOBEYS", "WALMART", "COSTCO", "LOBLAWS", "ZEHRS", "FRESHCO", "NO FRILLS",
+         "FOOD BASICS", "CENTRAL SUPER", "SUPERMARKET", "SUPERSTORE", "METRO "),
+    ),
+    (
+        "Shopping",
+        ("AMZN", "AMAZON", "BUSINESS PRIME", "UNIQLO", "GUESS", "DOLLARAMA", "STAPLES",
+         "BEST BUY", "IKEA", "WINNERS", "CANADIAN TIRE"),
+    ),
+    (
+        "Utilities",
+        ("HYDRO", "ROGERS", "BELL CANADA", "TELUS", "FIDO", "FREEDOM MOBILE", "ENBRIDGE"),
+    ),
+    (
+        "Dining",
+        # Campus food dominates this statement: EngSoc's counter and the WFC
+        # food court are the two highest-volume merchants in it.
+        ("ENGINEERING SOCIETY", "WFC ", "WATCARD", "TIM HORTONS", "STARBUCKS", "MCDONALD",
+         "HARVEYS", "SUBWAY", "DENNYS", "CHEF ON CALL",
+         "PIZZA", "SHAWARMA", "SHAWERMA", "BURGER", "RAMEN", "SUSHI", "CHICKEN", "HAKKA",
+         "TAHINI", "LAZEEZ", "ROOSTERS", "FLOCK STOP", "EGG CLUB", "PAN FRIED", "PHO ",
+         "CAFE", "COFFEE", "DINER", "GRILL", "KITCHEN", "RESTAURANT", "BAKERY", "BISTRO",
+         "COOKIE", "CHOCOLA", "DESSERT", "SNAX", "TEASHOP", "HERO TEA", "BUBBLE TEA",
+         "GONG CHA", "XING FU TANG", "THE ALLEY", "SWEET LOO"),
+    ),
+)
 
 # Header cell names (case-insensitive, substring-matched) expected in an
 # imported bank statement export -- see _find_statement_header.
@@ -420,6 +487,35 @@ def compute_account_balances(
 _BRACKET_TAG_RE = re.compile(r"^\[[A-Z]{2,4}\]\s*")
 _MULTI_SPACE_RE = re.compile(r"\s{2,}")
 
+# "[OP]" (online purchase) rows don't follow the fixed-width layout above --
+# they bury the real vendor behind a channel label and an embedded date:
+#   "[OP]RECURRING PYMNT 17AUG2026GOOGLE"
+#   "[OP]RECURRING PYMNT  5JUN2026SPOTIFY P433484C66"
+# The day is space-padded to two characters, so a single-digit day produces a
+# run of 2+ spaces and the same vendor lands on the *other* side of
+# _MULTI_SPACE_RE -- "RECURRING PYMNT 17AUG2026GOOGLE" on the 17th but a bare
+# "RECURRING PYMNT" on the 5th. Strip the label and date first so one vendor
+# yields one merchant string; without this, detect_recurring() sees a fresh
+# merchant every cycle and no subscription is ever detected.
+_ONLINE_PREFIX_RE = re.compile(
+    r"^(?:ONLINE PURCHASE|ONLINE REFUND|RECURRING PYMNT|RECURRING REF)\s*\d{1,2}[A-Z]{3}\d{4}"
+)
+# Trailing noise on those same rows only (the fixed-width rows drop it with
+# the location column): a province/country code, and a per-payment reference
+# that changes monthly -- SPOTIFY P433484C66 then P4446E30CA then P45584EDD6.
+_TRAILING_REGION_CODES = frozenset(
+    ("ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "NL", "PE", "YT", "NT", "NU", "CAN")
+)
+
+
+def _is_reference_token(token: str) -> bool:
+    """
+    A per-payment reference rather than part of the name: long, and mixing
+    letters with digits ("P433484C66", "5H9NN3X4"). Store numbers stay --
+    "#4189" has no letters, "WFC 106" splits its digits into their own token.
+    """
+    return len(token) >= 6 and any(c.isdigit() for c in token) and any(c.isalpha() for c in token)
+
 
 def _derive_merchant(description: str) -> str:
     """
@@ -429,15 +525,51 @@ def _derive_merchant(description: str) -> str:
     strip the tag and take the text before that padding as the merchant.
     Falls back to the whole trimmed string when there's no padding to split
     on (e.g. "[SC]PLUS PLAN").
+
+    "[OP]" rows are the exception and are unpadded -- see _ONLINE_PREFIX_RE.
     """
     without_tag = _BRACKET_TAG_RE.sub("", description).strip()
-    return _MULTI_SPACE_RE.split(without_tag, maxsplit=1)[0].strip() or without_tag
+
+    unprefixed = _ONLINE_PREFIX_RE.sub("", without_tag).strip()
+    if unprefixed == without_tag:
+        # Fixed-width row: the location column already ends the merchant.
+        return _MULTI_SPACE_RE.split(without_tag, maxsplit=1)[0].strip() or without_tag
+
+    head = _MULTI_SPACE_RE.split(unprefixed, maxsplit=1)[0].strip() or unprefixed
+    tokens = head.split()
+    while tokens and (tokens[-1] in _TRAILING_REGION_CODES or _is_reference_token(tokens[-1])):
+        tokens.pop()
+    return " ".join(tokens) or head
 
 
-def _classify_import_category(description: str) -> str:
+def _classify_import_category(description: str, txn_type: str) -> str:
+    """
+    Best-effort category for an imported statement row, which carries no
+    category column of its own (see _parse_import_csv).
+
+    Order matters: transfer markers win over keywords (an e-transfer to a
+    restaurant-owning friend is still a transfer), keywords win over the
+    credit fallback, and anything unrecognised stays DEFAULT_IMPORT_CATEGORY
+    rather than being guessed at. Still a heuristic, not a general
+    categorizer -- but one derived from a real 220-row statement rather than
+    from assumption. Unrecognised rows are a visible "Other" slice, which is
+    the honest outcome; see specs.md Phase 5.
+    """
     upper = description.upper()
+
     if any(marker in upper for marker in _TRANSFER_DESCRIPTION_MARKERS):
         return "Transfer"
+
+    for category, keywords in _CATEGORY_KEYWORDS:
+        if any(keyword in upper for keyword in keywords):
+            return category
+
+    # A credit that matched nothing above is money coming in. Refunds are
+    # excluded by _REFUND_MARKERS so a returned purchase doesn't inflate the
+    # income figure on the dashboard.
+    if txn_type == "CREDIT" and not any(marker in upper for marker in _REFUND_MARKERS):
+        return "Income"
+
     return DEFAULT_IMPORT_CATEGORY
 
 
@@ -527,7 +659,7 @@ def _parse_import_csv(csv_text: str) -> list[dict[str, Any]]:
                 "amount": amount,
                 "merchant": _derive_merchant(description),
                 "description": description,
-                "category": _classify_import_category(description),
+                "category": _classify_import_category(description, txn_type),
             }
         )
 
