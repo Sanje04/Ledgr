@@ -5,7 +5,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py agent.py db.py ./
+# mcp_client.py is required, not optional: agent.py imports it at module scope
+# (specs.md Phase 8), so omitting it fails at uvicorn's import of main:app, not
+# at first tool use. Keep this list in sync when adding a backend module.
+COPY main.py agent.py db.py mcp_client.py ./
 
 EXPOSE 8000
 
