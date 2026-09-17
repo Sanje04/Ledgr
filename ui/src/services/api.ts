@@ -1,7 +1,8 @@
+import { USE_MOCK_DATA, missingBackendError } from "../constants";
 import type { ApiRequest, ApiResponse } from "../types";
 
-// Backend endpoint isn't available yet. Set VITE_API_URL (e.g. in a .env file)
-// once it is, and requests will be sent there for real instead of mocked.
+// The real backend endpoint. Unset is an error, not a cue to mock -- see
+// USE_MOCK_DATA in ../constants.
 const API_URL = import.meta.env.VITE_API_URL as string | undefined;
 
 const MOCK_REPLIES: readonly string[] = [
@@ -57,8 +58,11 @@ async function sendMessageToRealApi(message: string): Promise<string> {
 }
 
 export async function sendMessageToAPI(message: string): Promise<string> {
-  if (!API_URL) {
+  if (USE_MOCK_DATA) {
     return sendMessageToMock(message);
+  }
+  if (!API_URL) {
+    throw missingBackendError("VITE_API_URL");
   }
   return sendMessageToRealApi(message);
 }

@@ -1,8 +1,8 @@
+import { USE_MOCK_DATA, missingBackendError } from "../constants";
 import type { AccountType, ImportResult, TransactionsResponse } from "../types";
 
-// Backend transactions endpoint isn't configured yet. Set VITE_TRANSACTIONS_API_URL
-// (alongside VITE_API_URL) once it is, and requests will be sent there for real
-// instead of using the mock data below.
+// Set alongside VITE_API_URL. Unset is an error, not a cue to mock -- see
+// USE_MOCK_DATA in ../constants.
 const TRANSACTIONS_API_URL = import.meta.env.VITE_TRANSACTIONS_API_URL as string | undefined;
 // Derived, not a third env var -- CLAUDE.md already flags the VITE_API_URL/
 // VITE_TRANSACTIONS_API_URL pair as one config duplication too many.
@@ -99,8 +99,11 @@ async function fetchTransactionsFromRealApi(): Promise<TransactionsResponse> {
 }
 
 export async function fetchTransactions(): Promise<TransactionsResponse> {
-  if (!TRANSACTIONS_API_URL) {
+  if (USE_MOCK_DATA) {
     return fetchTransactionsFromMock();
+  }
+  if (!TRANSACTIONS_API_URL) {
+    throw missingBackendError("VITE_TRANSACTIONS_API_URL");
   }
   return fetchTransactionsFromRealApi();
 }
@@ -116,7 +119,8 @@ export async function importTransactionsCsv(
 ): Promise<ImportResult> {
   if (!IMPORT_API_URL) {
     throw new Error(
-      "Error: Import isn't available in mock mode. Configure VITE_TRANSACTIONS_API_URL to import real data."
+      "Error: Import isn't available in mock mode. Unset VITE_USE_MOCK_DATA and " +
+        "configure VITE_TRANSACTIONS_API_URL to import real data."
     );
   }
 
