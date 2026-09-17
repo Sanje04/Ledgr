@@ -23,7 +23,7 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 ┌─────────────────────┐       POST /api/chat        ┌──────────────────────┐       HTTP       ┌───────────────────────┐
 │   React + TS UI      │ ────────────────────────────▶│  FastAPI Backend      │ ────────────────▶│  Ollama (remote host) │
 │  (Vite, localStorage)│◀──────────────────────────── │  (validation, agent,  │◀─────────────────│  local LLM inference   │
-│  + TransactionsPanel │      GET /api/transactions   │   MCP client)         │   model output   └───────────────────────┘
+│  + spending dashboard│      GET /api/transactions   │   MCP client)         │   model output   └───────────────────────┘
 └─────────────────────┘◀──────────────────────────── └───────┬───────┬──────┘
                           { accounts, transactions }          │       │
        auto-save every turn (deterministic, never the model's │       │  MCP streamable HTTP
@@ -47,7 +47,7 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 - **Every turn is auto-saved to MongoDB** by the backend, deterministically, regardless of what the model does — this always happens and doesn't depend on the LLM.
 - **The agent's tools live in a separate MCP server process**, and the backend *discovers* them at startup over the Model Context Protocol rather than hardcoding a tool table — see [Tools served over MCP](#tools-served-over-mcp) below.
 - **The agent has tool-calling access** to the MongoDB store (list/search/delete history, plus mock account/transaction lookups) so the model itself decides when to act on it — see [Agent tool-calling over conversation history](#agent-tool-calling-over-conversation-history) and [Mock bank transactions](#mock-bank-transactions).
-- **`GET /api/transactions`** is a separate, read-only path used only by the frontend's transactions panel for display — the agent never calls it; the agent's own access to the same data is tool-calling only.
+- **`GET /api/transactions`** is a separate, read-only path used only by the frontend's dashboard for display — the agent never calls it; the agent's own access to the same data is tool-calling only. Every dashboard aggregate (summary stats, time series, top merchants, recurring detection, anomalies) is computed client-side from this one payload, so none of it needed new endpoints.
 
 ## Tech stack
 
@@ -58,7 +58,7 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 | Agent     | Python, `httpx` async client calling Ollama's `/api/chat` |
 | LLM       | Ollama, running locally/on a LAN host — no cloud API costs |
 | Persistence (client) | Browser `localStorage` — what the UI reads from today |
-| Persistence (server, current) | MongoDB (local instance), via Motor — conversations auto-saved on every turn and readable/searchable/deletable by the agent's tools (not yet read back by the UI); a separate seeded `accounts`/`transactions` mock dataset readable by the agent's tools and, read-only, by the UI's transactions panel |
+| Persistence (server, current) | MongoDB (local instance), via Motor — conversations auto-saved on every turn and readable/searchable/deletable by the agent's tools (not yet read back by the UI); a separate seeded `accounts`/`transactions` mock dataset readable by the agent's tools and, read-only, by the UI's dashboard |
 | Agent tool-calling | Ollama `tools` field, two-call loop in `agent.py` — see [Agent tool-calling over conversation history](#agent-tool-calling-over-conversation-history) |
 | Tool serving | Model Context Protocol (`mcp` 1.12, streamable HTTP) — the six tools run in their own server process that the backend discovers at startup; see [Tools served over MCP](#tools-served-over-mcp) |
 
@@ -70,7 +70,7 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 - Every `/api/chat` turn durably auto-saved to MongoDB by the backend (async, via Motor), independent of `localStorage` and independent of the model
 - Agent tool-calling over that same MongoDB store — the model can list, full-text search, and (with explicit confirmation) delete conversation history in natural language, via `list_conversations`/`search_history`/`delete_conversation`
 - All six of the agent's tools served by a standalone MCP server process that the backend discovers at startup — schema-validated on the wire, with the backend degrading to a tool-free reply (still `200`, never a `502`) when the tool server is unavailable
-- A second, mock bank accounts/transactions domain the same agent can reason about — `list_accounts`/`search_transactions`/`get_spending_summary`, the last of which computes real totals server-side rather than letting the model guess — plus a read-only `GET /api/transactions` endpoint powering a transactions panel in the UI, alongside chat, with an account filter (Checking/Savings/Credit Card/All) and a category-spending donut chart for the trailing 30 days
+- A second, mock bank accounts/transactions domain the same agent can reason about — `list_accounts`/`search_transactions`/`get_spending_summary`, the last of which computes real totals server-side rather than letting the model guess — plus a read-only `GET /api/transactions` endpoint powering a **spending dashboard** — summary cards, a spend/income trend chart, a category donut, top merchants, recurring-payment and anomaly detection, and a transaction table, all filterable by time range and by clicking into a category or merchant — with the assistant alongside it in a collapsible rail
 - Strictly-typed API contract shared between frontend and backend
 - Backend request validation with descriptive 400 errors on malformed input
 - Frontend works standalone with a built-in mock bot when no backend is configured
@@ -82,9 +82,12 @@ The centerpiece is that last point: not a chatbot with a database bolted on, but
 tender/
 ├── ui/                    React + TypeScript frontend (Vite)
 │   ├── src/
-│   │   ├── components/    ChatWindow, MessageList, MessageItem, InputField, TransactionsPanel
+│   │   ├── screens/       UploadScreen, PreviewScreen, DashboardScreen (chosen from data state)
+│   │   ├── components/    AppHeader, AssistantRail, MessageList, MessageItem, InputField,
+│   │   │                  CategorySpendingChart, AccountSummary, cards/ (the dashboard cards)
+│   │   ├── hooks/         useTransactions (fetch + sort), useCsvImport (import lifecycle)
 │   │   ├── services/      api.ts (chat), transactions.ts (transactions) — HTTP clients with mock fallbacks
-│   │   ├── utils/         localStorage helpers
+│   │   ├── utils/         spending/pattern aggregates, date + currency helpers, localStorage
 │   │   └── types/         shared TypeScript interfaces
 │   └── README.md
 └── backend/               FastAPI backend + MCP tool server (two processes, one directory)
@@ -99,6 +102,11 @@ tender/
     ├── Dockerfile.mcp     MCP tool server container (same build context, shares db.py)
     ├── requirements.txt
     └── README.md
+
+docs/                      Design/spec documents for proposed, not-yet-built work
+├── README.md              Index — which doc covers what
+├── design.md              Local Minikube cluster + Jenkins CI/CD pipeline (design only)
+└── specs.md               Phase 9: Ollama ↔ Claude API provider switch (spec only)
 ```
 
 ## Getting started
@@ -177,7 +185,7 @@ A second, independent domain the same agent reasons about, in the same tool-call
 
 - **Agent tools (LLM-driven):** `list_accounts` (balances), `search_transactions` (filtered lookups by account/category/merchant/date/amount), and `get_spending_summary`, which **computes** totals and a category breakdown server-side rather than handing the model raw rows to add up — and excludes transfers between the user's own accounts and income from spending totals by default, so paying off a credit card doesn't get counted as "spending."
 - **Storage:** two new MongoDB collections, `accounts` (3 fixed documents) and `transactions` (~100+ documents), loaded by a one-off, idempotent script (`backend/scripts/seed_transactions.py`) from two checked-in, human-editable CSV fixtures (`backend/data/accounts.csv`, `backend/data/transactions.csv`) — not part of the running app. Transaction dates in the CSV are relative (`days_ago`), so the data always reads as "the last ~6 months" no matter when you seed.
-- **`GET /api/transactions`:** a read-only endpoint, separate from the tool-calling path above, used only by the frontend's transactions panel to display the same data alongside chat. The agent itself never calls this endpoint — its access is tool-calling only, matching the philosophy above.
+- **`GET /api/transactions`:** a read-only endpoint, separate from the tool-calling path above, used only by the frontend's dashboard to display the same data alongside the assistant. The agent itself never calls this endpoint — its access is tool-calling only, matching the philosophy above.
 - Both domains share one `SYSTEM_PROMPT` and one tool-calling loop (still capped at one tool call per turn — see `backend/specs.md` Phase 4): the same assistant handles "what did we talk about yesterday?" and "how much did I spend on groceries?" in one chat.
 
 See [`backend/specs.md`](backend/specs.md) (Phase 4) for the data model, tool contracts, and verification notes.
@@ -216,7 +224,7 @@ The point is the protocol boundary: tools become a service with a discoverable, 
 - [x] Backend agent layer that calls a local LLM served by Ollama on a separate machine
 - [x] MongoDB-backed conversation storage (auto-save every turn)
 - [x] Agent tool-calling for history operations (list/search/delete conversations)
-- [x] Mock bank accounts/transactions domain with agent tool-calling (list/search/summarize) and a read-only transactions panel in the UI
+- [x] Mock bank accounts/transactions domain with agent tool-calling (list/search/summarize) and a read-only spending dashboard in the UI
 - [ ] Frontend updated to load history from the backend instead of `localStorage`
 - [x] Multi-turn conversation context passed to the model, bounded to a configurable number of recent turns
 - [x] Tools extracted into a standalone MCP server the backend discovers at startup, instead of a hardcoded tool table

@@ -291,3 +291,141 @@ The original chat UI (WhatsApp-style green header/bubbles, single light theme) w
 **Import dialog** (`TransactionsPanel.tsx`/`.css`): clicking "Import CSV" and picking a file no longer goes straight to a `window.confirm()` — it opens a small modal (same overlay/scale-from-center/`@starting-style` pattern as `LegalModal.tsx`, see its CSS for the shared convention) asking for the account's name (free text, required), type (select, for the icon), and an optional opening balance, with the "this replaces all existing data" warning as static copy in the dialog instead of a native confirm. Submitting calls `importTransactionsCsv(file, accountName, accountType, openingBalance)`, which now sends `account_name`/`account_type`/`opening_balance` as additional multipart form fields alongside the file.
 
 `src/utils/categoryColors.ts` and `src/utils/spending.ts` had comments referencing "the account filter" as the reason category colors stay fixed across re-renders — updated to reference importing a new dataset instead, since that's the only thing that still changes the visible transaction set now that there's no filter.
+---
+
+## Addendum: Tender design system + dashboard-first layout
+
+The app was re-laid-out around the dashboard and re-skinned onto the **Tender design
+system**. Two inputs, both in the supplied design bundle: `_ds/tender-design-system-*/`
+(the token set and its written rules — its component layer is 375×812 mobile furniture and
+is *not* used), and `Ledgr Analyzer.dc.html` (a design canvas built from this repo, which
+supplied the layout and the Tender→Ledgr token mapping). The canvas ships its own
+client-side engine (sample transactions, in-browser CSV parsing, localStorage persistence);
+**none of that was carried over** — every screen is wired to the real
+`GET /api/transactions`, `POST /api/transactions/import` and `POST /api/chat`.
+
+### Layout inversion
+
+`App.tsx` was chat-primary (`ChatWindow` at 60% beside a 360px read-only
+`TransactionsPanel`). It is now dashboard-primary: a full-bleed brand-gradient `AppHeader`,
+then a sheet (`margin-top:-18px`, `24px` top corners, `--gradient-sheet`) holding the active
+screen plus a 380px/56px collapsible `AssistantRail`. The header renders outside the screen
+switch so the app never flashes a bare page.
+
+`ChatWindow.tsx` → `AssistantRail.tsx` is a `git mv` plus `{isOpen, onToggle, scopeLabel}` —
+its five state variables and send/retry logic are unchanged. `TransactionsPanel.tsx` was
+deleted: its fetch went to `useTransactions`, its import dialog became `PreviewScreen`, and
+its lists became dashboard cards.
+
+### Screens (derived from data state — there is no router)
+
+`App.tsx` branches in this order, and the order is load-bearing:
+
+1. `!hasLoadedOnce` → `AppLoading`
+2. `pendingImport !== null` → `PreviewScreen` — **above** the error check, so a failed
+   reload doesn't trap a user with a file waiting to confirm
+3. `status === "error"` → `AppError` with retry. Required because `fetchTransactions`
+   collapses every failure into one string: without it an unreachable backend renders the
+   *upload* screen and invites the user to drop a file into nothing
+4. `transactions.length === 0` → `UploadScreen`
+5. otherwise → `DashboardScreen`
+
+`useTransactions` separates `status` (last completed outcome) from `isFetching` (request in
+flight) so a retry doesn't briefly leave the error state and flash a different screen, and
+gates the spinner on `hasLoadedOnce` so a post-import reload doesn't blank the dashboard.
+It also **sorts ascending by date once**, centrally — the endpoint returns newest-first, and
+every aggregate downstream wants the opposite.
+
+### Preview import is display-only
+
+`utils/csvPreview.ts` mirrors the backend's column *detection* (`db._find_statement_header`
+/ `_find_column`) so the screen can report which columns it found, and nothing else. It does
+not reproduce `_parse_import_csv`'s validation, the DEBIT/CREDIT sign flip,
+`_derive_merchant` or `_classify_import_category`; the table shows the file's **raw cells**,
+and the raw unmodified file is POSTed. The backend stays the single authority on whether an
+import is valid — an unreadable header is reported but still submittable. Server rejections
+(including the row-numbered ones) render on the preview screen with the form intact, rather
+than bouncing back to upload and discarding what the user typed.
+
+### Dashboard state
+
+Filters (`range`, `category`, `merchant`) and `railOpen` live in `DashboardScreen`, not
+`App` — the only way off the dashboard is an import that replaces all data, where resetting
+filters is correct and unmount gives it for free. `mode`/`granularity` belong to the trend
+card and `merchantSort` to the merchants card. Granularity is **derived at render**
+(`clampGranularity(preference, range)`), never synced into state, so widening the range
+restores the user's choice.
+
+**The self-exclusion rule** — the bug most likely to reappear: a card is fed the slice with
+every filter applied *except its own dimension*. Give the donut the category-filtered array
+and clicking a slice collapses it to one slice with no way back. The trend chart is the
+exception: its dimension is time, which the range pills already own separately.
+`detectRecurring`/`detectAnomalies` run over the **full unfiltered history**, not the
+range-scoped rows — a 30-day window can't distinguish a cadence from a coincidence.
+
+### Deliberate deviations from the canvas
+
+- **recharts, not hand-rolled SVG**, for both the donut and the new trend chart.
+- **No account filter** — one account by design (Phase 5 rewrite); replaced by a static
+  `AccountSummary`.
+- **No chat-driven dashboard filtering and no per-row recategorization.** `/api/chat` is
+  frozen at `{message} → {response}` with no structured action channel, and there is no
+  PATCH endpoint. User-driven click-to-filter (donut slice, legend row, merchant row,
+  anomaly card) *is* implemented — it's pure client state.
+- **Omitted for want of endpoints**: "Delete all data", "Load sample data", multi-CSV
+  merge/de-dup.
+- **No net-worth line**: `running_balance` is per-account and not summable across the
+  response.
+
+### Known limitations recorded, not fixed
+
+- **Imported rows are almost all `Other`.** `db._classify_import_category` only
+  distinguishes two transfer markers and never assigns the `Income` *category*, so on a real
+  imported statement the **category breakdown degenerates** — the donut is one slice, the
+  legend one row, and the category filter a no-op. Verified against a 220-row statement; the
+  card says so on screen rather than just looking broken. Fixing it client-side was
+  rejected: the assistant reads the same stored field via MCP, so chat and dashboard would
+  visibly disagree.
+
+  The rest of the dashboard holds up better than that implies, which was confirmed on the
+  same import rather than assumed. The income and net KPIs are **not** affected — `isIncome`
+  keys off a positive amount rather than the category, so CREDIT rows still count
+  (that import reported $8,177.24 in, correctly). Top merchants, the trend chart and
+  recurring detection all work on real merchant strings. `detectAnomalies` found outliers
+  only because of its global-baseline fallback for thin categories — with everything filed
+  under one category, that fallback is what keeps the card alive, not a defensive extra.
+- **"All" is really "the 500 most recent."** `GET /api/transactions` takes no query params
+  and caps at 500, newest-first, with no total count. The table shows a notice when exactly
+  500 rows come back.
+- **Mock mode can't reach Upload or Preview** (the mock returns 3 transactions and
+  `importTransactionsCsv` throws without `VITE_TRANSACTIONS_API_URL`). Not worked around
+  with a third env var; exercise those screens against a real backend.
+
+---
+
+## Addendum: assistant replies render as Markdown
+
+Assistant text was rendered literally in a `<p>`, so the model's `**bold**` and
+`- ` bullets reached the user as raw syntax. `utils/markdown.ts` (pure tokenizer,
+tested) + `components/Markdown.tsx` (React elements, no `dangerouslySetInnerHTML`)
+now parse a deliberately small subset: paragraphs, `**bold**`, `*italic*`,
+`inline code`, fenced code, `-`/`1.` lists, `#`-`###` headings, `>` quotes, and
+links restricted to `http`/`https`/`mailto`. Tables and nested lists are out of
+scope — the rail is too narrow and a hand-rolled parser gets brittle there.
+
+Three things that constrain edits here:
+
+- **Only the assistant branch of `MessageItem` is parsed.** What the user typed is
+  echoed back verbatim in the existing `<p>`, not round-tripped through Markdown.
+- **`white-space: pre-wrap` is now scoped to `p.message-item__text`.** On the
+  parsed container it would double every paragraph gap, since block structure
+  comes from the parser. `pre-wrap` survives only inside `<pre>`.
+- **Build React elements, never an HTML string.** Assistant replies quote
+  user-imported CSV descriptions, so the text is not content we control; React's
+  text-node escaping is what makes this safe, and the link-scheme allowlist in
+  `markdown.ts` covers the one case escaping doesn't.
+
+`backend/agent.py`'s `SYSTEM_PROMPT` gained one matching clause asking for
+Markdown with bold figures and short bullet lists, and explicitly *not* headings
+or tables. The renderer is the fix; the prompt is the nudge — the UI handles
+whatever the model emits either way.

@@ -441,4 +441,65 @@ Confirmed hermetically only (`pytest -m "not live_llm"`, 39 passed, no Ollama/Mo
 - The `role: "tool"` message content handed to the second Ollama call, and that the second call is made with `tools=None`.
 - That an unconfirmed `delete_conversation` reaches `mcp_client` zero times (the live check above confirmed zero requests server-side; this confirms zero *calls* client-side).
 
-**Not verified:** the `docker compose up --build` path. The compose file, `Dockerfile.mcp`, and `.env.production` keys were written but never built or run — the live verification above was all bare-process on the host, so `host.docker.internal`, the `mcp` service-name DNS resolution, and the three-container startup within 120s remain unconfirmed. Same caveat as Phase 6, which was never live-verified either. Run it before relying on it.
+**Verified since:** the `docker compose build` + `up -d` path now runs live. All three containers build and start, `host.docker.internal` resolves from the backend, `mcp` service-name DNS resolves, all six tools are discovered over MCP, `GET /api/transactions` returns 200, and a tool-using `/api/chat` turn answers from real Mongo data (the MCP server's own Motor client, not the backend's).
+
+One gotcha that path surfaced, which bare-process dev cannot: **if `MONGODB_URI` points at a local `mongod` running as a replica set, it needs `/?directConnection=true`.** The driver otherwise reads the replica set's advertised member list, discards the seed host, and dials `127.0.0.1:27017` — inside a container that is the container itself, so every `db.py` call fails with `ServerSelectionTimeoutError` and the transactions endpoint 503s. It hits both processes at once, since `backend` and `mcp` share one `env_file` and one `db.py`. See `DEPLOYMENT.md` §1. Not applicable to the Atlas `mongodb+srv://` string, which must not carry the option.
+
+---
+
+## Retrieval Architecture: what "RAG" already means here (documentation of existing behavior — no code change)
+
+### Why this section exists
+The README roadmap's open item — "RAG over the transaction/conversation data, exposed as an MCP tool" — reads as though this project has no retrieval-augmented generation at all. That's wrong, and the undersell is worth correcting: Phases 3, 4, and 8 already implement **structured RAG** end to end. What's actually missing is the *vector/semantic* half. This section names the distinction so the roadmap item can be scoped honestly, and so nobody "adds RAG" by duplicating a retrieval path that already exists.
+
+Nothing here describes new code. It's a read of `agent.py`, `mcp_server.py`, and `db.py` as they stand after Phase 8.
+
+### The retrieve-then-generate loop, as built
+Trace "how much did I spend on groceries in August" through `agent.run()`:
+
+1. **Query understanding.** Ollama is called with the message, the bounded history window (Phase 7), and the tool schemas discovered from the MCP server (`mcp_client.ensure_tools()`).
+2. **Retrieval planning.** The model emits a structured call — `get_spending_summary({category: "Groceries", start_date: ..., end_date: ...})`. Natural language has become a machine-executable query specification. The interpolated current date (see Phase 4) is what lets "August" resolve to a range at all.
+3. **Retrieval.** `mcp_server.dispatch_tool` validates those arguments against the declared JSON Schema, then `db._build_transaction_filter` compiles them into a MongoDB query and runs it.
+4. **Augmentation.** The result is appended as a `{"role": "tool", "content": json.dumps(result)}` message — the retrieved context injected into the prompt.
+5. **Grounded generation.** A second Ollama call, deliberately with `tools=None` (Phase 3), composes the final natural-language answer from that tool result.
+
+That is the RAG pattern. The only structural difference from the textbook diagram is that retrieval is a schema-validated function call over structured records instead of a similarity search over text chunks.
+
+Two distinct retrieval modes exist today, and they're worth keeping straight:
+
+| Mode | Implementation | Corpus | Analogue |
+|---|---|---|---|
+| **Structured / parameterized** | `search_transactions`, `get_spending_summary` → `db._build_transaction_filter` | `transactions`, `accounts` | Text-to-query over structured data |
+| **Lexical full-text** | `search_history` → MongoDB `$text` against the `messages.content` index from `ensure_indexes()` | `conversations.messages` | Keyword/BM25-style retrieval |
+| **Dense / semantic** | *not implemented* | — | Embeddings + vector similarity |
+
+`search_transactions`'s `limit` (default 20, see `mcp_server.DEFAULT_TRANSACTION_LIMIT`) and `search_history`'s `limit` are functionally the top-k bound of this system — retrieval is capped so a broad query can't flood the context window, the same reason a vector store returns k results rather than all of them.
+
+### What this is *not*: the model doesn't author queries
+The model fills in **parameters** on a fixed, enumerated filter surface. It does not write the query language. `category` is constrained by `enum: db.CATEGORIES`, dates and amounts by JSON type, and `db.py` compiles the actual MongoDB filter. Free-form text-to-SQL — where the model emits the query itself — is a different thing, and this project deliberately doesn't do it.
+
+The safety properties that buys are load-bearing, not incidental:
+- No injection surface. Nothing the model produces is ever concatenated into a query language; `merchant` is even `re.escape`d before becoming a `$regex`.
+- No syntactically invalid query can reach Mongo — an out-of-enum `category`, a missing `required` field, or a wrong JSON type is rejected by `jsonschema` at the MCP boundary and returned as `{"error": ...}` before any DB call (see Phase 8's rejection-path verification).
+- No unbounded scan: every retrieval path is `limit`-capped or an indexed aggregation over a filtered set.
+- A rejected argument fails *loudly* as an error result, rather than silently becoming a filter that matches nothing — the specific reason validation lives in `dispatch_tool` rather than being left to Mongo.
+
+The cost is **generality**, and that's the honest argument for doing more work here (below).
+
+### What's genuinely missing
+Three separate gaps, often conflated under "add RAG":
+
+1. **Semantic retrieval.** There is no way to answer "did I buy anything car-related last month?" Nothing matches: no such category exists, and `search_transactions`'s `merchant` filter is an escaped substring regex, not a meaning match. This is the gap the roadmap item is really about, and it needs embeddings — plausibly from Ollama itself (`nomic-embed-text` or similar), since Ollama is already a hard dependency and no new provider or cloud cost would be involved.
+2. **Arbitrary aggregation — the N-tools problem.** `get_spending_summary` groups by `category` and nothing else. No grouping by merchant, no time bucketing, no period-over-period comparison. So "which merchant did I spend the most at?", "what's my average weekly grocery spend?", and "compare August to September" have no path today — and the model can't derive them from `search_transactions` output either, because `SYSTEM_PROMPT` explicitly forbids it from adding up rows itself (correctly — that's the whole reason `get_spending_summary` computes server-side). Each new question shape currently means hand-writing another tool. Model-authored-but-validated query specs are what would collapse that into one.
+3. **Category quality on imported data.** Independent of retrieval strategy, and worth knowing before planning either of the above: `db._classify_import_category` assigns `Transfer` on two description markers (`_TRANSFER_DESCRIPTION_MARKERS`) and `DEFAULT_IMPORT_CATEGORY` (`"Other"`) to everything else. So on a real statement imported via Phase 5, nearly every row is `Other` and `get_spending_summary`'s `by_category` breakdown degenerates to a single bucket. The seeded demo CSVs have real categories; a user's own bank export does not. Any category-driven retrieval feature will look far better in the demo than in real use until this is addressed — by an LLM categorization pass, merchant-level aggregation, or both. This is a known limitation of Phase 5's deliberately narrow heuristic (see Phase 5), not a bug.
+
+### Options for a future phase — not yet decided
+Recorded so the roadmap item can be scoped, deliberately **not** specified as a design:
+- **Semantic layer alongside the structured one.** Embeddings over merchant/description (and/or `messages.content`), a 7th MCP tool. Structured filters keep answering "how much", vector answers "anything car-related" — complementary, not overlapping. Storage fork matters: local MongoDB Community Server has no `$vectorSearch` (Atlas-only), so this is either brute-force cosine in Python over embeddings stored as a document field — which mirrors `get_spending_summary`'s existing "Mongo narrows, Python finishes" style and fits this data volume — or a move to Atlas / `mongodb/mongodb-atlas-local` in dev.
+- **Generated structured queries.** A tool taking a constrained, model-authored aggregation spec (`{group_by, metric, filters, bucket}`) that the MCP server validates against an allowlist and compiles to a Mongo pipeline. Fixes gap 2 above and keeps every safety property in this section, since no query language crosses the wire.
+- **Actual text-to-SQL.** Mirror `transactions` into SQLite/Postgres and have the model write `SELECT`s against a shown schema, executed read-only with row and statement-time caps. The most literal reading of "text-to-SQL", and the only option that introduces a second store for the same data.
+
+Whichever is chosen, the Phase 8 boundary means it lands in `mcp_server.py` as a new entry in `TOOL_DEFINITIONS` plus its handler, with **no `agent.py` or `main.py` change** — the backend discovers it on the next boot. Embedding *generation* is a separate question from retrieval: doing it inside `save_turn`/`import_transactions` would put an Ollama call on two deterministic, non-model-controlled paths (see `CLAUDE.md`'s four-paths rule), so a `scripts/`-style backfill in the manner of `seed_transactions.py` is the lower-risk default.
+
+### Terminology to use in docs going forward
+Say **structured RAG** (or "tool-based/parameterized retrieval") for what exists, and **vector/semantic RAG** for what doesn't. The roadmap's bare "RAG" item should be read as the latter. Describing this system as having no retrieval augmentation is inaccurate; describing it as having vector search would be too.
