@@ -1,136 +1,190 @@
+/* Design tokens -- Tender design system.
+ *
+ * Values come from the Tender design system (tokens/colors.css, elevation.css,
+ * radius.css, motion.css) mapped onto this app's existing token names, so every
+ * component that already reads var(--color-*) picks up the new look without
+ * being touched.
+ *
+ * Tender's own rules that these values encode, worth knowing before editing:
+ *   - One dominant hue. Brand blue owns the header, primary actions and links.
+ *   - Neutrals are never neutral: every grey carries a blue cast. Pure grey or
+ *     black looks foreign immediately -- which is why --color-scrim is navy.
+ *   - Expenses are ink, not red. Only income is coloured. --color-negative is
+ *     for errors and destructive UI, NOT for debit amounts.
+ *   - Depth comes from shadow alone; cards have no border. The shadow is the
+ *     edge.
+ */
+@import "./fonts.css";
+
 :root {
   color-scheme: light;
 
   /* Surfaces */
-  --color-page: #eef0f3;
-  --color-bg: #f6f6f4;
+  --color-page: #f2f3f7;
+  --color-bg: #f8f9fd;
   --color-surface: #ffffff;
-  --color-surface-secondary: #f1f1ef;
-  --color-border: rgba(15, 15, 20, 0.09);
-  --color-border-strong: rgba(15, 15, 20, 0.16);
+  --color-surface-secondary: #f2f3f7;
+  --color-border: #eff1f5;
+  --color-border-strong: #e4e8ef;
 
-  /* Ink */
-  --color-text: #0d0d10;
-  --color-text-secondary: #55555e;
-  --color-muted: #8a8a92;
+  /* Ink -- navy, never neutral grey */
+  --color-text: #12324f;
+  --color-text-secondary: #71808d;
+  --color-muted: #8e9aa5;
 
   /* One accent */
-  --color-accent: #3a5cff;
-  --color-accent-hover: #2f4de0;
+  --color-accent: #2650a0;
+  --color-accent-hover: #204790;
   --color-accent-contrast: #ffffff;
-  --color-accent-wash: rgba(58, 92, 255, 0.09);
+  --color-accent-wash: #eef3fc;
 
-  /* Semantic */
-  --color-positive: #16a34a;
-  --color-negative: #dc2626;
-  --color-negative-wash: rgba(220, 38, 38, 0.08);
+  /* Semantic. --color-positive is the accessible green (#177551, 4.5:1 on
+     white) rather than Tender's brand #2a9a6c, which is ~3.3:1 and fails at
+     the sizes money is set in -- the design system flags this itself and
+     supplies the darker value for production. */
+  --color-positive: #177551;
+  --color-negative: #c0402a;
+  --color-negative-wash: #ffede8;
   --color-error-bg: var(--color-negative-wash);
   --color-error-text: var(--color-negative);
 
-  /* Elevation */
-  --shadow-sm: 0 1px 2px rgba(15, 15, 20, 0.05);
-  --shadow-md: 0 4px 16px rgba(15, 15, 20, 0.08);
-  --shadow-lg: 0 16px 40px rgba(15, 15, 20, 0.14);
+  /* Elevation -- soft, wide, navy-tinted; never grey or black */
+  --shadow-xs: 0 2px 6px rgba(19, 50, 80, 0.05);
+  --shadow-sm: 0 8px 24px rgba(19, 50, 80, 0.06);
+  --shadow-md: 0 10px 28px rgba(19, 50, 80, 0.1);
+  --shadow-lg: 0 18px 44px rgba(19, 50, 80, 0.14);
+  --shadow-pill: 0 4px 14px rgba(19, 50, 80, 0.08);
 
-  /* Radius */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
+  /* Radius -- nothing is a right angle */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --radius-sheet: 24px;
   --radius-pill: 999px;
 
-  /* Motion (see skills/emil-design-eng_SKILL.md, skills/animate_SKILL.md) */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  /* Brand surfaces. The header is never a flat fill. */
+  --brand-band: linear-gradient(160deg, #3860a8 0%, #2650a0 45%, #1f4795 100%);
+  --gradient-sheet: linear-gradient(180deg, #f8f9fd 0%, #f2f3f7 45%, #eff0f3 100%);
+  --on-brand: rgba(255, 255, 255, 0.72);
+  --on-brand-soft: rgba(255, 255, 255, 0.16);
+  --color-scrim: rgba(18, 50, 79, 0.44);
 
-  /* Category chart palette -- validated categorical palette, fixed hue order.
-     See ui/src/utils/categoryColors.ts / dataviz skill. Referenced via var()
-     so chart colors follow the theme automatically. */
-  --cat-groceries: #2a78d6;
-  --cat-dining: #eb6834;
-  --cat-transport: #1baf7a;
-  --cat-entertainment: #eda100;
-  --cat-shopping: #e87ba4;
-  --cat-utilities: #008300;
-  --cat-healthcare: #4a3aa7;
-  --cat-rent: #e34948;
-  --cat-other: #898781;
+  /* Motion. --ease-out is Tender's ease-out-soft rather than the canvas's
+     cubic-bezier(.4,0,.2,1) -- skills/emil-design-eng_SKILL.md calls for real
+     custom curves over the builtin-equivalent ones. --ease-drawer is the
+     slower curve reserved for the assistant rail. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-drawer: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-shift: 6px;
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
+  /* Category chart palette -- Tender's own hues.
+     Assignment is FIXED per category and never re-sorted by value or rank, so
+     changing the filter or importing a new dataset never repaints a category
+     that's still on screen. These hues sit inside the brand's blue family,
+     which means several are close in hue: every category must therefore stay
+     identified by TEXT wherever it appears (legend, tooltip, row label) and no
+     view may rely on colour alone to distinguish them. */
+  --cat-groceries: #2f80af;
+  --cat-dining: #f97a5e;
+  --cat-transport: #33af7c;
+  --cat-entertainment: #4c74be;
+  --cat-shopping: #243c68;
+  --cat-utilities: #276b93;
+  --cat-healthcare: #8ea9de;
+  --cat-rent: #c0402a;
+  --cat-other: #8e9aa5;
+  --cat-income: #33af7c;
+  --cat-transfer: #c9cfd5;
+
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  font-family: var(--font-sans);
 }
 
+/* Dark values live in two blocks on purpose: this one covers "the OS says dark
+   and the user never touched the toggle", the [data-theme] one below covers an
+   explicit choice. Collapsing them into one would silently give every
+   system-dark user the light theme. Keep them in sync. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --color-page: #08080a;
-    --color-bg: #0c0c0e;
-    --color-surface: #141416;
-    --color-surface-secondary: #1b1b1e;
-    --color-border: rgba(255, 255, 255, 0.09);
-    --color-border-strong: rgba(255, 255, 255, 0.18);
+    --color-page: #0d1b2b;
+    --color-bg: #10212f;
+    --color-surface: #15283a;
+    --color-surface-secondary: #1b3145;
+    --color-border: #1f374c;
+    --color-border-strong: #2a4762;
 
-    --color-text: #f2f2f4;
-    --color-text-secondary: #b4b4bc;
-    --color-muted: #86868f;
+    --color-text: #eaf0f7;
+    --color-text-secondary: #a7b6c4;
+    --color-muted: #8194a5;
 
-    --color-accent: #7c93ff;
-    --color-accent-hover: #93a6ff;
-    --color-accent-contrast: #0b0d1f;
-    --color-accent-wash: rgba(124, 147, 255, 0.16);
+    --color-accent: #8ea9de;
+    --color-accent-hover: #bcccee;
+    --color-accent-contrast: #12324f;
+    --color-accent-wash: rgba(142, 169, 222, 0.16);
 
-    --color-positive: #4ade80;
-    --color-negative: #f87171;
-    --color-negative-wash: rgba(248, 113, 113, 0.14);
+    --color-positive: #33af7c;
+    --color-negative: #f97a5e;
+    --color-negative-wash: rgba(249, 122, 94, 0.14);
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+    --shadow-xs: 0 2px 6px rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.34);
+    --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
+    --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.5);
+    --shadow-pill: 0 4px 14px rgba(0, 0, 0, 0.34);
 
-    --cat-groceries: #3987e5;
-    --cat-dining: #d95926;
-    --cat-transport: #199e70;
-    --cat-entertainment: #c98500;
-    --cat-shopping: #d55181;
-    --cat-healthcare: #9085e9;
-    --cat-rent: #e66767;
+    --brand-band: linear-gradient(160deg, #2b4877 0%, #223a66 60%, #1f3560 100%);
+    --gradient-sheet: linear-gradient(180deg, #10212f 0%, #0f1f2c 45%, #0d1b2b 100%);
+    --color-scrim: rgba(5, 14, 24, 0.62);
+
+    --cat-healthcare: #bcccee;
+    --cat-shopping: #4c74be;
+    --cat-transfer: #2a4762;
+    --cat-rent: #e86a52;
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-page: #08080a;
-  --color-bg: #0c0c0e;
-  --color-surface: #141416;
-  --color-surface-secondary: #1b1b1e;
-  --color-border: rgba(255, 255, 255, 0.09);
-  --color-border-strong: rgba(255, 255, 255, 0.18);
+  --color-page: #0d1b2b;
+  --color-bg: #10212f;
+  --color-surface: #15283a;
+  --color-surface-secondary: #1b3145;
+  --color-border: #1f374c;
+  --color-border-strong: #2a4762;
 
-  --color-text: #f2f2f4;
-  --color-text-secondary: #b4b4bc;
-  --color-muted: #86868f;
+  --color-text: #eaf0f7;
+  --color-text-secondary: #a7b6c4;
+  --color-muted: #8194a5;
 
-  --color-accent: #7c93ff;
-  --color-accent-hover: #93a6ff;
-  --color-accent-contrast: #0b0d1f;
-  --color-accent-wash: rgba(124, 147, 255, 0.16);
+  --color-accent: #8ea9de;
+  --color-accent-hover: #bcccee;
+  --color-accent-contrast: #12324f;
+  --color-accent-wash: rgba(142, 169, 222, 0.16);
 
-  --color-positive: #4ade80;
-  --color-negative: #f87171;
-  --color-negative-wash: rgba(248, 113, 113, 0.14);
+  --color-positive: #33af7c;
+  --color-negative: #f97a5e;
+  --color-negative-wash: rgba(249, 122, 94, 0.14);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow-xs: 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.34);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.5);
+  --shadow-pill: 0 4px 14px rgba(0, 0, 0, 0.34);
 
-  --cat-groceries: #3987e5;
-  --cat-dining: #d95926;
-  --cat-transport: #199e70;
-  --cat-entertainment: #c98500;
-  --cat-shopping: #d55181;
-  --cat-healthcare: #9085e9;
-  --cat-rent: #e66767;
+  --brand-band: linear-gradient(160deg, #2b4877 0%, #223a66 60%, #1f3560 100%);
+  --gradient-sheet: linear-gradient(180deg, #10212f 0%, #0f1f2c 45%, #0d1b2b 100%);
+  --color-scrim: rgba(5, 14, 24, 0.62);
+
+  --cat-healthcare: #bcccee;
+  --cat-shopping: #4c74be;
+  --cat-transfer: #2a4762;
+  --cat-rent: #e86a52;
 }
 
 *,
@@ -148,8 +202,18 @@ body {
 body {
   background-color: var(--color-page);
   color: var(--color-text);
+  /* Nothing in the product UI is set at 400 -- 500 is the lightest weight. */
+  font-weight: 500;
 }
 
-button {
+button,
+input,
+textarea,
+select {
   font-family: inherit;
+}
+
+/* Money is always tabular so columns of figures line up. */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
