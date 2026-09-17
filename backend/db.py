@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB_NAME", "ag_ai")
 
+# Motor's default server-selection timeout is 30s, so an unreachable or
+# misconfigured MongoDB left every request hanging for half a minute before
+# the 503 -- long enough to look like a hang rather than a failure, and the
+# endpoint's "try again shortly" advice is wrong for a permanent
+# misconfiguration anyway. 5s is well clear of a healthy local/Atlas
+# handshake while failing fast enough to read as an error.
+DEFAULT_SERVER_SELECTION_TIMEOUT_MS = 5000
+
 DEFAULT_MAX_HISTORY_TURNS = 5
 
 
@@ -47,7 +55,29 @@ def _load_max_history_turns() -> int:
 
 MAX_HISTORY_TURNS = _load_max_history_turns()
 
-client = AsyncIOMotorClient(MONGODB_URI)
+
+def _load_server_selection_timeout_ms() -> int:
+    raw = os.environ.get("MONGODB_SERVER_SELECTION_TIMEOUT_MS")
+    if raw is None or raw.strip() == "":
+        return DEFAULT_SERVER_SELECTION_TIMEOUT_MS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        logger.warning(
+            "Invalid MONGODB_SERVER_SELECTION_TIMEOUT_MS=%r (must be a positive integer); "
+            "falling back to default %d",
+            raw,
+            DEFAULT_SERVER_SELECTION_TIMEOUT_MS,
+        )
+        return DEFAULT_SERVER_SELECTION_TIMEOUT_MS
+    return value
+
+
+client = AsyncIOMotorClient(
+    MONGODB_URI, serverSelectionTimeoutMS=_load_server_selection_timeout_ms()
+)
 db = client[MONGODB_DB_NAME]
 conversations = db["conversations"]
 accounts = db["accounts"]
