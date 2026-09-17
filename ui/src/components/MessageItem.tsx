@@ -1,4 +1,5 @@
 import type { Message } from "../types";
+import Markdown from "./Markdown";
 import "../styles/MessageItem.css";
 
 export interface MessageItemProps {
@@ -39,7 +40,13 @@ function MessageItem({ message }: MessageItemProps): JSX.Element {
     <div className={`message-item ${isUser ? "message-item--user" : "message-item--bot"}`}>
       {!isUser && <BotAvatar />}
       <div className="message-item__content">
-        <p className="message-item__text">{message.message}</p>
+        {/* Only the assistant's text is parsed as Markdown -- what the user
+            typed is shown back to them exactly as they typed it. */}
+        {isUser ? (
+          <p className="message-item__text">{message.message}</p>
+        ) : (
+          <Markdown className="message-item__text" text={message.message} />
+        )}
         <span className="message-item__timestamp">{formatTimestamp(message.timestamp)}</span>
       </div>
     </div>

@@ -60,7 +60,10 @@ SYSTEM_PROMPT = (
     f"{', '.join(db.CATEGORIES)}. Always use get_spending_summary for totals — "
     "never add up individual transaction amounts yourself. You can only call one "
     "tool per turn, so if a question needs two lookups, answer the first and ask "
-    "the user to follow up for the second."
+    "the user to follow up for the second. Write replies in Markdown, using "
+    "**bold** for figures worth emphasising and short bullet lists where you're "
+    "listing several things. Keep it light — no headings or tables; the chat "
+    "rail is narrow."
 )
 
 DELETE_INTENT_WORDS = ("delete", "remove", "clear", "wipe")
