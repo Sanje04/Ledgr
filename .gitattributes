@@ -1,0 +1,8 @@
+# This repo is developed on Windows with core.autocrlf=true, which rewrites LF to
+# CRLF on checkout. That is harmless for source files but breaks anything a Linux
+# container executes: a shell script whose shebang line ends "#!/bin/sh\r" fails
+# with "no such file or directory", naming the interpreter rather than the real
+# problem. Pin the files that run inside our images to LF.
+*.envsh text eol=lf
+*.sh text eol=lf
+Dockerfile* text eol=lf

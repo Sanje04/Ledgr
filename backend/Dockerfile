@@ -13,7 +13,7 @@ COPY main.py agent.py db.py mcp_client.py ./
 EXPOSE 8000
 
 # --proxy-headers/--forwarded-allow-ips=* trust X-Forwarded-For from
-# nginx.conf's proxy_pass so main.py's per-client-IP rate limiter sees real
+# nginx.conf.template's proxy_pass so main.py's per-client-IP rate limiter sees real
 # client IPs instead of the nginx container's -- safe only because
 # docker-compose.yml exposes this port to the internal network alone (no
 # host port mapping), so nginx is the only thing that can ever call it.
