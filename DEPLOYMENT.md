@@ -22,6 +22,15 @@ only reaches services bound beyond `127.0.0.1`; if your local `mongod` only
 binds to loopback, this will fail to connect from inside the container even
 though it works fine from the host itself.
 
+If that local `mongod` runs as a replica set (`replication.replSetName` set in
+`mongod.cfg`), append `/?directConnection=true`:
+`mongodb://host.docker.internal:27017/?directConnection=true`. Otherwise the
+driver reads the replica set's advertised member list, discards the seed host
+and dials whatever that list contains (typically `127.0.0.1:27017`) — which
+inside a container is the container itself, so the connection is refused even
+though the seed address was reachable. Do not add this option to the Atlas
+`mongodb+srv://` string; it is incompatible with SRV/multi-host seedlists.
+
 ## 2. Configure the backend
 
 ```
