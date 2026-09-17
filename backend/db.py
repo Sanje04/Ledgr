@@ -156,7 +156,9 @@ _CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "Groceries",
         ("SOBEYS", "WALMART", "COSTCO", "LOBLAWS", "ZEHRS", "FRESHCO", "NO FRILLS",
-         "FOOD BASICS", "CENTRAL SUPER", "SUPERMARKET", "SUPERSTORE", "METRO "),
+         "FOOD BASICS", "CENTRAL SUPER", "SUPERMARKET", "SUPERSTORE", "METRO ",
+         # Generic, so an unfamiliar chain still lands right.
+         "GROCER"),
     ),
     (
         "Shopping",
