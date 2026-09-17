@@ -24,12 +24,18 @@
   align-items: center;
   pointer-events: none;
   text-align: center;
+  /* Must sit inside the donut hole (inner radius 62px) without touching the
+     ring -- the total can be six figures wide. */
+  max-width: 108px;
 }
 
 .category-spending-chart__center-value {
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
   color: var(--color-text);
+  line-height: 1.2;
 }
 
 .category-spending-chart__center-label {

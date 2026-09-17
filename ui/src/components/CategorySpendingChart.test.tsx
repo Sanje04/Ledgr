@@ -1,44 +1,63 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import CategorySpendingChart from "./CategorySpendingChart";
-import type { Transaction } from "../types";
-
-function txn(overrides: Partial<Transaction>): Transaction {
-  return {
-    id: "1",
-    account_id: "checking",
-    account_name: "Checking",
-    account_type: "checking",
-    date: new Date().toISOString(),
-    amount: -10,
-    merchant: "Test",
-    description: "test",
-    category: "Groceries",
-    running_balance: 0,
-    ...overrides,
-  };
-}
+import type { CategorySpend } from "../utils/spending";
 
 describe("CategorySpendingChart", () => {
-  it("shows an empty state when there is no recent spending", () => {
-    render(<CategorySpendingChart transactions={[]} />);
+  it("shows an empty state naming the active range", () => {
+    render(
+      <CategorySpendingChart
+        data={[]}
+        selectedCategory={null}
+        onSelectCategory={() => {}}
+        rangeLabel="last 30 days"
+      />
+    );
 
     expect(screen.getByText(/no spending in the last 30 days/i)).toBeInTheDocument();
   });
 
   it("renders a legend row per category with its total, in fixed category order", () => {
-    const recent = new Date().toISOString();
-    const txns: Transaction[] = [
-      txn({ id: "1", category: "Rent", amount: -1000, date: recent }),
-      txn({ id: "2", category: "Groceries", amount: -50, date: recent }),
-      txn({ id: "3", category: "Income", amount: 2800, date: recent }), // excluded
+    // Order comes from the caller (spending.ts emits CATEGORY_ORDER), and the
+    // chart must not re-sort it by amount.
+    const data: CategorySpend[] = [
+      { category: "Groceries", total: 50 },
+      { category: "Rent", total: 1000 },
     ];
 
-    render(<CategorySpendingChart transactions={txns} />);
+    render(
+      <CategorySpendingChart
+        data={data}
+        selectedCategory={null}
+        onSelectCategory={() => {}}
+        rangeLabel="last 30 days"
+      />
+    );
 
     const labels = screen.getAllByText(/Groceries|Rent/).map((el) => el.textContent);
-    expect(labels).toEqual(["Groceries", "Rent"]); // fixed order, not amount-sorted
-    expect(screen.getByText("US$1,000.00")).toBeInTheDocument();
-    expect(screen.getByText("US$50.00")).toBeInTheDocument();
+    expect(labels).toEqual(["Groceries", "Rent"]);
+    expect(screen.getByText("$1,000.00")).toBeInTheDocument();
+    expect(screen.getByText("$50.00")).toBeInTheDocument();
+  });
+
+  it("toggles the filter off when the already-selected legend row is clicked", async () => {
+    // Without this the donut is a one-way trip: click a category and there's no
+    // way back to the unfiltered view from the chart itself.
+    const onSelectCategory = vi.fn();
+    const data: CategorySpend[] = [{ category: "Groceries", total: 50 }];
+
+    render(
+      <CategorySpendingChart
+        data={data}
+        selectedCategory="Groceries"
+        onSelectCategory={onSelectCategory}
+        rangeLabel="last 30 days"
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /Groceries/ }));
+
+    expect(onSelectCategory).toHaveBeenCalledWith(null);
   });
 });
