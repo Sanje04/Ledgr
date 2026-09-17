@@ -49,6 +49,79 @@ The cost of `minReplicas=0` is a cold start on the first request after idle. Cha
 already a multi-second operation against a local LLM, so this is barely noticeable
 in practice.
 
+## Two shapes: three containers or one
+
+Everything below deploys the **three-container split** — `frontend`, `backend`, `mcp`
+as separate container apps, mirroring `docker-compose.yml`. There is also a
+**single all-in-one image** built by the `Dockerfile` at the repository root, which
+packs all three processes into one container. Pick one:
+
+| | Three containers | All-in-one image |
+|---|---|---|
+| Deploy unit | 3 container apps + scripts | 1 container app |
+| Setup | `infra/deploy.ps1` | ~5 `az` commands, [below](#deploying-the-all-in-one-image) |
+| Internal wiring | Internal ingress + FQDNs | loopback, nothing to configure |
+| Scaling | Each part independently | All three together |
+| Demonstrates | The MCP process boundary as a deployed service | Less of it — same protocol, shared lifecycle |
+
+The split is the more interesting artifact, since the whole point of Phase 8 was
+making the agent's tools a separate service. The all-in-one image is markedly
+simpler to operate and is the better choice if you want one thing running and
+addressable today. Both keep the MCP boundary real — the backend still speaks MCP
+over HTTP to a separate process, never to an in-process function table.
+
+### Deploying the all-in-one image
+
+With a student subscription, `az acr build` is the shortest path: it builds in
+Azure, so nothing needs pushing from your machine and the GHCR public-package step
+is unnecessary.
+
+```powershell
+az group create -n tender-rg -l canadacentral
+az acr create -n <globally-unique-name> -g tender-rg --sku Basic --admin-enabled true
+
+# Builds from the repo root. Must be run from the repository root: the Dockerfile
+# needs both ui/ and backend/ in its context.
+az acr build -r <acr-name> -t tender:v1 .
+
+az containerapp env create -n tender-env -g tender-rg -l canadacentral --logs-destination none
+
+az containerapp create -n tender -g tender-rg --environment tender-env `
+  --image <acr-name>.azurecr.io/tender:v1 `
+  --registry-server <acr-name>.azurecr.io `
+  --ingress external --target-port 80 `
+  --cpu 0.5 --memory 1.0Gi `
+  --min-replicas 1 --max-replicas 1 `
+  --secrets mongodb-uri="<atlas-connection-string>" `
+  --env-vars MONGODB_URI=secretref:mongodb-uri `
+             OLLAMA_BASE_URL="http://<your-ollama-host>.<tailnet>.ts.net:11434" `
+             OLLAMA_MODEL="gemma4:latest"
+```
+
+`--min-replicas 1` rather than 0, which a student subscription makes affordable and
+which buys two things: no cold start on the first visit, and no first-message-
+without-tools window, because the MCP process is already warm. `--max-replicas 1`
+stays, for the same reason as the split deployment: `main.py`'s rate limiter is a
+module-level dict and therefore per-replica.
+
+The image sets its own internal topology as defaults (`MCP_HOST=127.0.0.1`,
+`MCP_SERVER_URL=http://127.0.0.1:9000/mcp`, `FORCE_HTTPS=false`,
+`MONGODB_SERVER_SELECTION_TIMEOUT_MS=5000`), so the only things a deployment must
+supply are the Mongo connection string and the Ollama address. Set
+`ALLOWED_ORIGINS` to the app's public URL once `az containerapp show` reports it.
+
+**This image does not solve Ollama reachability.** A container in Azure still has
+no route to a machine at home, so you need either the Tailscale sidecar — added to
+this same app as a second container, exactly as
+`infra/backend-app.yaml.template` does it, with `HTTP_PROXY=http://localhost:1055` —
+or another way to reach the model. Bundling the app's own three processes together
+changes nothing about that.
+
+To redeploy after a change: `az acr build -r <acr-name> -t tender:v2 .` then
+`az containerapp update -n tender -g tender-rg --image <acr-name>.azurecr.io/tender:v2`.
+Use a new tag each time rather than overwriting one; Container Apps only creates a
+revision when the image reference changes.
+
 ## Before you start
 
 You need free accounts on [Tailscale](https://tailscale.com),

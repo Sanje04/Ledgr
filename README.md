@@ -105,6 +105,11 @@ tender/
     ├── requirements.txt
     └── README.md
 
+Dockerfile                 All-in-one image: frontend + backend + MCP server in one container
+├── deploy/nginx.conf           its nginx config (static — everything is loopback)
+└── deploy/supervisord.conf     supervises the three processes
+                           Build from the repo root: `docker build -t tender .`
+
 infra/                     Azure Container Apps deployment (built — see AZURE_DEPLOYMENT.md)
 ├── deploy.ps1             Idempotent deploy: resource group, environment, three container apps
 ├── deploy.sh              Bash equivalent of the above
@@ -124,7 +129,8 @@ Three topologies, in increasing order of reach:
 | Where | Doc | Status |
 |---|---|---|
 | One host, `docker compose` | [DEPLOYMENT.md](DEPLOYMENT.md) | Built |
-| Azure Container Apps, public HTTPS URL, free tier | [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md) | Built |
+| Azure Container Apps, three containers | [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md) | Built |
+| Azure, single all-in-one container (root `Dockerfile`) | [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md#two-shapes-three-containers-or-one) | Built |
 | Single-node k3s cluster with Argo CD | [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) | Plan only |
 
 The Azure one is the interesting case: the app runs in a datacentre while the LLM
