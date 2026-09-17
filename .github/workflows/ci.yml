@@ -50,9 +50,18 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
+      # "npm install", not "npm ci", on purpose. vitest's nested vite@8 lists
+      # esbuild as an OPTIONAL dependency, and npm omits other platforms'
+      # optional deps from a lockfile generated on Windows -- which this one
+      # is. "npm ci" then refuses on Linux with "Missing: @esbuild/linux-x64
+      # from lock file". Regenerating the lockfile from scratch on Windows
+      # reproduces it byte-for-byte, so this is not fixable by re-locking
+      # from the dev machine. "npm install" resolves per-platform and is
+      # correct here; the cost is that CI may pick newer versions inside the
+      # package.json ranges than a developer has locally.
       - name: Install dependencies
         working-directory: ui
-        run: npm ci
+        run: npm install
 
       # "lint" is tsc --noEmit -- there is no ESLint config in this repo.
       - name: Typecheck
