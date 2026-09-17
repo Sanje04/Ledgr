@@ -30,10 +30,71 @@ services:
       - "9000"
     restart: unless-stopped
 
+  # Tailscale sidecar (AZURE_DEPLOYMENT.md): an outbound HTTP proxy onto a
+  # private tailnet, so the backend can reach an Ollama host that isn't on the
+  # same network -- which is the whole problem on Azure, where the app runs in a
+  # datacentre and Ollama runs on a home machine with no public address.
+  #
+  # Opt-in via a profile, and OFF by default: the compose deployment in
+  # DEPLOYMENT.md reaches Ollama over host.docker.internal and needs no tunnel,
+  # so making this unconditional would only add a container that crash-loops
+  # without Tailscale credentials. Bring it up with:
+  #   docker compose --profile tailnet up -d --build
+  # and set TS_CLIENT_ID/TS_CLIENT_SECRET plus HTTP_PROXY/NO_PROXY in
+  # backend/.env.production first (see .env.production.example).
+  #
+  # Exists in this file, despite being an Azure concern, so the arrangement is
+  # provable locally before it is debugged through a cloud platform's logs.
+  tailscale:
+    profiles: ["tailnet"]
+    image: tailscale/tailscale:stable
+    env_file:
+      - ./backend/.env.production
+    environment:
+      # Userspace networking (the image's default) needs no /dev/net/tun and no
+      # added capabilities -- the same reason it is the only option on a managed
+      # container platform. Slower than kernel mode, irrelevant for JSON-sized
+      # chat payloads.
+      - TS_USERSPACE=true
+      # 0.0.0.0, not 127.0.0.1: under compose this is a separate container with
+      # its own network namespace, so the backend reaches it by service name. On
+      # Azure Container Apps the two containers share one namespace and this
+      # becomes 127.0.0.1:1055 -- the one intentional difference between the two
+      # topologies, mirrored by HTTP_PROXY in .env.production.
+      - TS_OUTBOUND_HTTP_PROXY_LISTEN=0.0.0.0:1055
+      - TS_HOSTNAME=tender-backend-local
+      # No TS_STATE_DIR and no volume on purpose: with an OAuth client secret the
+      # node registers as ephemeral and Tailscale removes it shortly after it
+      # disconnects. Persisting state would instead accumulate a dead node per
+      # container rebuild, which matters more on Azure where scale-to-zero
+      # restarts the replica routinely.
+      - TS_EXTRA_ARGS=--advertise-tags=tag:tender-backend
+      # Blanked deliberately. This service shares backend/.env.production (so the
+      # credentials live in exactly one file, as `mcp` already does), and that
+      # file sets HTTP_PROXY for the backend's benefit -- which, inherited here,
+      # would tell tailscaled to reach Tailscale's control plane through the
+      # proxy tailscaled itself is supposed to provide. `environment` overrides
+      # `env_file`, so these two lines break that loop.
+      - HTTP_PROXY=
+      - NO_PROXY=
+    expose:
+      - "1055"
+    restart: unless-stopped
+
   frontend:
     build: ./ui
     ports:
       - "80:80"
+    environment:
+      # ui/nginx.conf is a template now (ui/nginx.conf.template), rendered at
+      # container start, because the backend address differs per deployment
+      # target -- compose service name here, an ingress FQDN on Azure Container
+      # Apps (see AZURE_DEPLOYMENT.md). Spelled out rather than left to the
+      # Dockerfile's identical default so the compose topology stays readable
+      # from this file alone. The `resolver` nginx needs alongside it is
+      # discovered from the container's own /etc/resolv.conf at startup, so
+      # there is nothing to configure here for it.
+      - BACKEND_ORIGIN=http://backend:8000
     depends_on:
       - backend
     restart: unless-stopped
