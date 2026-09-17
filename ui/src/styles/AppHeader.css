@@ -1,0 +1,65 @@
+/* Brand band. Never a flat fill -- the gradient is part of the design system's
+   identity (160deg, ~12% lightness travel). */
+.app-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  /* Bottom padding is deep because the sheet below pulls up over it by 18px. */
+  padding: 18px 24px 30px;
+  background: var(--brand-band);
+  color: #ffffff;
+}
+
+.app-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.app-header__logo {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  color: #2650a0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(19, 50, 80, 0.18);
+}
+
+.app-header__logo svg {
+  width: 19px;
+  height: 19px;
+}
+
+.app-header__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.app-header__title-accent {
+  color: var(--on-brand);
+  font-weight: 700;
+}
+
+/* The theme toggle sits on blue here, so it gets the fixed white alphas rather
+   than the surface tokens it uses elsewhere. */
+.app-header .theme-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: var(--on-brand-soft);
+  color: #ffffff;
+  border: none;
+}
+
+.app-header .theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.26);
+}

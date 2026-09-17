@@ -1,0 +1,746 @@
+/* Dashboard shell: scrolling main column beside a fixed assistant rail. */
+.dashboard {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* This is a scrolling flex column, so its children would otherwise shrink to
+   fit the viewport -- which silently squashes the transactions card (it clips
+   its own overflow) down to a sliver. */
+.dashboard__main > * {
+  flex-shrink: 0;
+}
+
+/* ---- Cards -------------------------------------------------------------
+   A card is white, 16px round, NO border, and gets its edge from the shadow.
+   Hairlines only ever appear between rows inside one card. */
+.card {
+  background: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+}
+
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.card__head--padded {
+  margin-bottom: 12px;
+}
+
+.card__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  color: var(--color-text);
+}
+
+.card__overline {
+  margin: 0 0 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.card__meta {
+  font-size: 0.76rem;
+  color: var(--color-muted);
+}
+
+.card__controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.card__empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.card__empty--padded {
+  padding: 24px 16px;
+  text-align: center;
+}
+
+/* ---- Toolbar ----------------------------------------------------------- */
+.dashboard__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dashboard__toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.dashboard__file-input {
+  display: none;
+}
+
+.pill-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Selection is weight + shadow, never a fill. An inactive pill is still on the
+   surface colour -- it just sits lower and reads muted. */
+.pill {
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 0.5rem 1rem;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  box-shadow: var(--shadow-xs);
+  transition:
+    transform 120ms var(--ease-out),
+    color 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
+}
+
+.pill--active {
+  color: var(--color-text);
+  box-shadow: var(--shadow-pill);
+}
+
+.pill:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.pill--action {
+  color: var(--color-accent);
+}
+
+.pill:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.segmented {
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  background: var(--color-surface-secondary);
+  border-radius: var(--radius-pill);
+}
+
+.segmented__option {
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 0.34rem 0.78rem;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--color-muted);
+  box-shadow: none;
+  transition:
+    transform 120ms var(--ease-out),
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
+}
+
+.segmented__option--active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-pill);
+}
+
+.segmented__option:active {
+  transform: scale(0.97);
+}
+
+/* ---- Account summary --------------------------------------------------- */
+.account-summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.account-summary__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  border-radius: var(--radius-pill);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.account-summary__icon {
+  display: flex;
+  color: var(--color-accent);
+}
+
+.account-summary__icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.account-summary__name {
+  color: var(--color-text-secondary);
+}
+
+.account-summary__balance {
+  font-weight: 700;
+}
+
+/* ---- Filter chips ------------------------------------------------------ */
+.dashboard__filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dashboard__filters-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--color-accent-wash);
+  border: 1px solid transparent;
+  color: var(--color-text);
+  border-radius: var(--radius-pill);
+  padding: 0.3rem 0.6rem 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 120ms var(--ease-out),
+    border-color 160ms ease;
+}
+
+.chip:hover {
+  border-color: var(--color-accent);
+}
+
+.chip:active {
+  transform: scale(0.96);
+}
+
+.chip span {
+  color: var(--color-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* ---- KPIs -------------------------------------------------------------- */
+.dashboard__kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 12px;
+}
+
+.kpi {
+  padding: 16px;
+  animation: screen-in 320ms var(--ease-out) both;
+}
+
+.kpi__label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-muted);
+}
+
+.kpi__value {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  /* The design system spaces the sign away from the figure ("+ $22,596.96"),
+     which gives the browser a wrap opportunity the number shouldn't take. */
+  white-space: nowrap;
+}
+
+.kpi__sub {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+
+.kpi__sub--truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Two-up rows ------------------------------------------------------- */
+.dashboard__split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  /* Each card keeps its natural height. Stretching them to match would leave a
+     tall column of dead space under the fixed-height chart whenever the
+     category legend is long. */
+  align-items: flex-start;
+}
+
+.dashboard__trend {
+  flex: 2 1 460px;
+  min-width: 0;
+}
+
+.dashboard__category {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+
+.dashboard__category-note {
+  margin: 12px 0 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface-secondary);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.dashboard__merchants,
+.dashboard__recurring {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.dashboard__trend-plot {
+  margin-left: -8px;
+}
+
+.chart-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.8rem;
+}
+
+.chart-tooltip__label {
+  color: var(--color-muted);
+  font-size: 0.72rem;
+}
+
+.chart-tooltip__value {
+  font-weight: 700;
+}
+
+/* ---- Merchant list ----------------------------------------------------- */
+.merchant-list,
+.recurring-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.merchant-list__row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  padding: 0.3rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: inherit;
+  transition:
+    background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.merchant-list__row:hover,
+.recurring-list__row:hover {
+  background: var(--color-surface-secondary);
+}
+
+.merchant-list__row:active,
+.recurring-list__row:active {
+  transform: scale(0.99);
+}
+
+.merchant-list__row--selected {
+  background: var(--color-accent-wash);
+}
+
+.merchant-list__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.88rem;
+}
+
+.merchant-list__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merchant-list__value {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.merchant-list__track {
+  display: block;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-secondary);
+  overflow: hidden;
+}
+
+.merchant-list__bar {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  transition: width 320ms var(--ease-out);
+}
+
+/* ---- Recurring --------------------------------------------------------- */
+.recurring-list__row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 0.42rem 0.3rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  transition:
+    background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.recurring-list__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.recurring-list__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.recurring-list__name {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recurring-list__sub {
+  display: block;
+  font-size: 0.73rem;
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recurring-list__amount {
+  font-weight: 700;
+  font-size: 0.88rem;
+  flex-shrink: 0;
+}
+
+/* ---- Anomalies --------------------------------------------------------- */
+.dashboard__anomalies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.anomaly {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  padding: 16px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition:
+    transform 120ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
+}
+
+.anomaly:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.anomaly:active {
+  transform: scale(0.98);
+}
+
+.anomaly__badge {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--color-negative-wash);
+  color: var(--color-negative);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.anomaly__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.anomaly__title {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.anomaly__detail {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+.anomaly__amount {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ---- Transactions table ------------------------------------------------ */
+.dashboard__table {
+  padding: 16px 0 0;
+  overflow: hidden;
+}
+
+.dashboard__table .card__head {
+  padding: 0 16px;
+}
+
+.dashboard__table-notice {
+  margin: 0 16px 12px;
+  padding: 0.6rem 0.8rem;
+  background: var(--color-surface-secondary);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.txn-table {
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.txn-table__row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1.6fr) minmax(0, 140px) minmax(0, 120px) 110px;
+  gap: 12px;
+  align-items: center;
+  padding: 0.55rem 1rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.88rem;
+}
+
+.txn-table__row--head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.txn-table__date {
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.txn-table__merchant {
+  min-width: 0;
+}
+
+.txn-table__merchant-name,
+.txn-table__description {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.txn-table__description {
+  font-size: 0.74rem;
+  color: var(--color-muted);
+}
+
+.txn-table__category {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.txn-table__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.txn-table__account {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.txn-table__amount {
+  text-align: right;
+  font-weight: 700;
+}
+
+.dashboard__table-more {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.dashboard__table-more button {
+  border: none;
+  box-shadow: var(--shadow-xs);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 0.38rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 120ms var(--ease-out),
+    color 160ms ease,
+    box-shadow 200ms var(--ease-out);
+}
+
+.dashboard__table-more button:hover {
+  color: var(--color-text);
+  box-shadow: var(--shadow-pill);
+}
+
+.dashboard__table-more button:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi {
+    animation: none;
+  }
+
+  .pill,
+  .chip,
+  .segmented__option,
+  .anomaly,
+  .merchant-list__row,
+  .merchant-list__bar,
+  .recurring-list__row,
+  .dashboard__table-more button {
+    transition: none;
+  }
+}
+
+/* Below this the 380px rail can't sit beside the cards, so it stacks under. */
+@media (max-width: 860px) {
+  .dashboard {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .dashboard__main {
+    overflow: visible;
+    padding: 16px 16px 32px;
+  }
+
+  .txn-table__row {
+    grid-template-columns: 64px minmax(0, 1.4fr) minmax(0, 100px) 96px;
+  }
+
+  .txn-table__account {
+    display: none;
+  }
+}

@@ -3,44 +3,57 @@
   width: 100%;
 }
 
+/* Full-bleed, not a centered column: the dashboard is the product now and
+   wants the width. */
 .app-shell {
   display: flex;
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
-  max-width: 1100px;
-  margin: 0 auto;
-  background-color: var(--color-surface);
-  box-shadow: var(--shadow-lg);
+  background-color: var(--color-page);
 }
 
-.main-layout {
-  display: flex;
+/* The sheet floats over the bottom of the brand band and never ends in visible
+   space -- it runs off the bottom of the viewport, per the design system. */
+.app-sheet {
   flex: 1 1 auto;
+  display: flex;
   min-height: 0;
+  margin-top: -18px;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--gradient-sheet);
+  overflow: hidden;
+  position: relative;
 }
 
-.main-layout > .chat-window {
-  flex: 1 1 60%;
+/* Screens fill the sheet. Scrolling is each screen's own business: the simple
+   ones scroll as a whole, while the dashboard keeps its assistant rail fixed
+   and scrolls only its main column. */
+.app-sheet > * {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-.main-layout > .transactions-panel {
-  flex: 0 0 360px;
+.app-sheet > .upload-screen,
+.app-sheet > .preview-screen,
+.app-sheet > .app-status {
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-@media (max-width: 600px) {
-  .app-shell {
-    max-width: 100%;
-    box-shadow: none;
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-shift));
   }
-
-  .main-layout {
-    flex-direction: column;
+  to {
+    opacity: 1;
+    transform: none;
   }
+}
 
-  .main-layout > .transactions-panel {
-    flex: 0 0 auto;
-    max-height: 65vh;
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-shift: 0px;
   }
 }
