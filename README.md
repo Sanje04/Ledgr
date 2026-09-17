@@ -105,11 +105,34 @@ tender/
     ├── requirements.txt
     └── README.md
 
+infra/                     Azure Container Apps deployment (built — see AZURE_DEPLOYMENT.md)
+├── deploy.ps1             Idempotent deploy: resource group, environment, three container apps
+├── deploy.sh              Bash equivalent of the above
+├── backend-app.yaml.template   The backend app + its Tailscale sidecar (two containers, so YAML)
+└── deploy.env.example     Config template (real values gitignored)
+
 docs/                      Design/spec documents for proposed, not-yet-built work
 ├── README.md              Index — which doc covers what
 ├── design.md              Local Minikube cluster + Jenkins CI/CD pipeline (design only)
 └── specs.md               Phase 9: Ollama ↔ Claude API provider switch (spec only)
 ```
+
+## Deployment
+
+Three topologies, in increasing order of reach:
+
+| Where | Doc | Status |
+|---|---|---|
+| One host, `docker compose` | [DEPLOYMENT.md](DEPLOYMENT.md) | Built |
+| Azure Container Apps, public HTTPS URL, free tier | [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md) | Built |
+| Single-node k3s cluster with Argo CD | [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) | Plan only |
+
+The Azure one is the interesting case: the app runs in a datacentre while the LLM
+stays on a home machine, reached over a Tailscale tunnel. That needed no application
+code — `agent.py` calls Ollama through a plain `httpx.AsyncClient()`, which honours
+proxy environment variables, so a `tailscaled` sidecar plus `HTTP_PROXY` is the whole
+integration. Inference stays free and self-hosted; the tradeoff is that the public URL
+is only live while that machine is.
 
 ## Getting started
 
@@ -230,6 +253,7 @@ The point is the protocol boundary: tools become a service with a discoverable, 
 - [ ] Frontend updated to load history from the backend instead of `localStorage`
 - [x] Multi-turn conversation context passed to the model, bounded to a configurable number of recent turns
 - [x] Tools extracted into a standalone MCP server the backend discovers at startup, instead of a hardcoded tool table
+- [x] Deployed to Azure Container Apps on a public HTTPS URL, free tier, with the LLM still self-hosted behind a Tailscale tunnel — see [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)
 - [ ] RAG over the transaction/conversation data, exposed as an MCP tool
 - [ ] Per-tool authorization (RBAC) on the MCP server, so a tool server is safe to expose to clients other than this backend
 

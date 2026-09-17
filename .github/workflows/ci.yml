@@ -71,3 +71,135 @@ jobs:
       - name: Run tests
         working-directory: ui
         run: npm test
+
+  # Builds the three deployment images and pushes them to GHCR (AZURE_DEPLOYMENT.md).
+  # GHCR rather than Azure Container Registry because the cheapest ACR tier is not
+  # free, and this project's whole deployment constraint is that it costs nothing;
+  # public GHCR packages also let Azure Container Apps pull with no registry
+  # credential to store or rotate.
+  build-and-push:
+    name: Build and push images
+    # Gated on both suites: a broken build must never reach the registry, since
+    # the deploy step downstream (and Azure) only ever sees a tag, not a test result.
+    needs: [backend, frontend]
+    # Pushes to the default branch only. PRs from forks cannot access the registry
+    # token anyway, and an unmerged branch has no business producing a deployable tag.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for GITHUB_TOKEN to push to GHCR. No separate PAT to manage.
+      packages: write
+    strategy:
+      # One image per matrix leg. All three share ./backend or ./ui as context, so
+      # they are independent -- failing one should not cancel the others mid-push.
+      fail-fast: false
+      matrix:
+        include:
+          - image: tender-backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+          # Same ./backend context as above on purpose: Dockerfile.mcp copies the
+          # shared db.py from it, so db.py stays one file rather than a copy
+          # (see backend/Dockerfile.mcp and specs.md Phase 8).
+          - image: tender-mcp
+            context: ./backend
+            dockerfile: ./backend/Dockerfile.mcp
+          - image: tender-frontend
+            context: ./ui
+            dockerfile: ./ui/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR rejects uppercase paths, and github.repository_owner preserves the
+      # account's original casing -- so lowercase it rather than hardcoding the
+      # owner and having this break if the repo is ever transferred or forked.
+      - name: Compute lowercase image name
+        id: name
+        run: |
+          owner="${{ github.repository_owner }}"
+          echo "ref=ghcr.io/${owner,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          # Both tags every time: the SHA tag is what deployments pin to (so a
+          # rollback is a real, immutable target), while `latest` is only a
+          # convenience for pulling by hand. Never deploy `latest` -- Container
+          # Apps would have no way to tell one revision's image from another's.
+          tags: |
+            ${{ steps.name.outputs.ref }}:${{ github.sha }}
+            ${{ steps.name.outputs.ref }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Rolls the three Azure Container Apps onto the image tags just pushed, so a
+  # merge to master is the whole deployment procedure (AZURE_DEPLOYMENT.md).
+  #
+  # Skipped entirely until Azure is configured: the `if` tests a repository
+  # variable rather than a secret, because secrets are not readable in an `if`
+  # expression. Before that variable exists, this job is skipped rather than
+  # failing every push -- the repo stays green for anyone who only wants CI.
+  deploy:
+    name: Deploy to Azure Container Apps
+    needs: build-and-push
+    if: vars.AZURE_RESOURCE_GROUP != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Mints the short-lived OIDC token azure/login exchanges for Azure
+      # credentials. This is why no long-lived Azure client secret is stored in
+      # the repository at all.
+      id-token: write
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Roll each app onto this commit's image
+        env:
+          RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          set -euo pipefail
+          owner="${{ github.repository_owner }}"
+          registry="ghcr.io/${owner,,}"
+          sha="${{ github.sha }}"
+
+          az extension add --name containerapp --upgrade --only-show-errors
+
+          # Deliberately the SHA tag, never `latest`: Container Apps creates a new
+          # revision only when the image reference changes, so redeploying
+          # `latest` is a no-op that looks like a successful deploy.
+          az containerapp update --name mcp --resource-group "$RG" \
+            --image "$registry/tender-mcp:$sha"
+
+          # --container-name is required here and only here: the backend replica
+          # holds two containers (app + Tailscale sidecar), and without it the CLI
+          # cannot tell which image to replace.
+          az containerapp update --name backend --resource-group "$RG" \
+            --container-name backend \
+            --image "$registry/tender-backend:$sha"
+
+          az containerapp update --name frontend --resource-group "$RG" \
+            --image "$registry/tender-frontend:$sha"
+
+      - name: Report the live URL
+        env:
+          RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          fqdn=$(az containerapp show --name frontend --resource-group "$RG" \
+            --query 'properties.configuration.ingress.fqdn' -o tsv)
+          echo "Deployed: https://$fqdn" >> "$GITHUB_STEP_SUMMARY"
