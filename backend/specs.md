@@ -105,9 +105,13 @@ Returned when `message` is missing, not a string, empty, or when the request bod
 
 ## Important Notes
 
-- **No authentication** for this MVP
-- **No persistence** — nothing is stored yet
-- **Echo-only logic** — this backend does not yet do any real processing of the message
+> **These notes describe Phase 1 as originally built.** Persistence arrived in
+> Phase 3 and the echo logic was replaced in Phase 2 — both bullets are kept
+> for the record, struck through, rather than quietly rewritten.
+
+- **No authentication** for this MVP (still true)
+- ~~**No persistence** — nothing is stored yet~~ → MongoDB auto-save, Phase 3
+- ~~**Echo-only logic** — this backend does not yet do any real processing of the message~~ → Ollama agent, Phase 2
 - **Contract is fixed** to match the existing frontend (`{ "message": string }` → `{ "response": string }`), so the frontend requires no changes to connect
 - **Local dev only** — no production/deployment concerns addressed yet
 
@@ -143,7 +147,7 @@ Replaced the echo logic with a real agent that forwards the user's message to a 
 
 ---
 
-## Phase 3: MongoDB Persistence & Tool-Calling Agent (in progress)
+## Phase 3: MongoDB Persistence & Tool-Calling Agent (implemented)
 
 ### Overview
 Move conversation storage from the frontend's `localStorage` into a local MongoDB instance, and give the agent **tool-calling** access to it — the model decides when to query or mutate conversation history, rather than the backend exposing a conventional REST CRUD API for it. This is the resume-facing centerpiece of the project: it demonstrates an agent that reasons about *when* to act on a database, not just a chatbot wired to one.
@@ -275,7 +279,13 @@ No fixed header shape is assumed beyond containing "Transaction Type" and "Date 
 
 Per row: `Transaction Type` must be `DEBIT` or `CREDIT` — this, not the amount column's own sign, decides the stored sign (`-abs(amount)` for DEBIT, `abs(amount)` for CREDIT), because some exports emit all-positive amounts and carry direction only in this column; trusting the amount's sign as-given would silently turn every debit into income on such a file. `Date Posted` is `YYYYMMDD` (absolute, like the old format — not the seed CSV's relative `days_ago`, since imported data is real history that shouldn't shift on re-import). `merchant` is derived from `Description` by stripping a leading bracket tag (e.g. `[PR]`) and truncating at the first run of 2+ spaces (banks pad the merchant column out to a fixed width before a location column) — `description` keeps the full raw text.
 
-There's no category column, so every row lands in `db.DEFAULT_IMPORT_CATEGORY` ("Other") **except** a narrow heuristic (`db._classify_import_category`): a description containing `ETRNSFR SENT` or `] TF ` is categorized `Transfer` instead, so outgoing e-transfers/internal transfers are excluded from `get_spending_summary()` by the existing `NON_SPENDING_CATEGORIES` filter rather than inflating "spending" by their full amount. This is a deliberate, narrow pattern match, not a general categorizer — flat "Other" for everything else is a known, accepted limitation of this phase (the category chart will show mostly one gray slice for a freshly imported statement).
+There's no category column, so `db._classify_import_category(description, txn_type)` derives one. It checks three things in order: `_TRANSFER_DESCRIPTION_MARKERS` (a description containing `ETRNSFR` or `] TF ` is a `Transfer`, so both legs of an e-transfer are excluded from `get_spending_summary()` by the existing `NON_SPENDING_CATEGORIES` filter rather than inflating "spending"); then `_CATEGORY_KEYWORDS`, a merchant-keyword table mapping to the existing `CATEGORIES` members; then, for a credit that matched neither, `Income` — unless it matched `_REFUND_MARKERS`, since a returned purchase isn't earnings. Anything unmatched stays `DEFAULT_IMPORT_CATEGORY` ("Other") rather than being guessed at.
+
+The keyword table is derived from the distinct merchants in a real 220-row statement plus common chains, not invented — a keyword no statement contains is dead weight, and a wrong one is worse than "Other". Every value is an existing `CATEGORIES` member: the MCP tool schemas declare that list as an enum (`test_mcp_server_tools.py` asserts they track it) and `ui/src/utils/categoryColors.ts` pins a fixed hue per category, so adding a category is a three-file change.
+
+This replaced an earlier version that matched only the two transfer markers and never assigned `Income`, under which a freshly imported statement showed a single gray slice. It remains a heuristic, not a general categorizer — an unfamiliar merchant set will still produce a large "Other" — and there is **no backfill**: import is full-replace with no PATCH endpoint, so data imported before this change keeps its old categories until re-imported.
+
+A prerequisite fix landed with it. `db._derive_merchant` assumed every row uses the fixed-width layout described above, but `[OP]` (online purchase) rows don't — they embed the posting date between a channel label and the vendor, space-padding single-digit days to two characters: `[OP]RECURRING PYMNT  5JUN2026SPOTIFY P433484C66` versus `[OP]RECURRING PYMNT 17AUG2026GOOGLE`. That padding put the same vendor on either side of the 2+-space split depending on the day of the month, so a monthly subscription presented as a different merchant every cycle — which meant the dashboard's recurring-payment detection could never see one, and the top-merchants card counted date-stamped duplicates as distinct vendors. `_ONLINE_PREFIX_RE` strips the label and date, and trailing province codes and per-payment references (`P433484C66` → `P4446E30CA` monthly) are dropped so one vendor yields one string.
 
 ### Validation and replace semantics
 `db._parse_import_csv` (pure, unit-tested directly — no Mongo needed) validates every row before anything is written; the first invalid row raises `ValueError` with a 1-indexed *original file* line number (blank lines and the preamble don't throw off the count), and `import_transactions` never touches Mongo in that case. Deliberately fail-fast rather than skipping bad rows or coercing them to a default — a silently-miscategorized transaction is worse than a rejected upload the user can fix and retry.
@@ -284,7 +294,12 @@ There's no category column, so every row lands in `db.DEFAULT_IMPORT_CATEGORY` (
 Multipart form on `main.py`: `file` (the CSV) plus `account_name`, `account_type`, and optional `opening_balance` form fields (`python-multipart` in `requirements.txt` — FastAPI's `UploadFile`/`File(...)`/`Form(...)` don't work without it). Adding these form fields doesn't touch the fixed `POST /api/chat` contract in CLAUDE.md — that pin is scoped to `/api/chat` only. Same three response shapes as before: `200` with `{imported_count, accounts}`; `400` with `{error}` on a validation failure (blank name, unknown type, a bad CSV row) or non-UTF-8 file; `503` with `{error}` on an unexpected DB error. Frontend-triggered only — the agent never calls this. The frontend's import dialog (collecting name/type/opening balance) itself carries the "this replaces all existing data" warning, replacing the old bare `window.confirm()` now that there's a real form to fill in first.
 
 ### Verified behavior (2026-09-13, statement-format rewrite)
-Hermetic tests (`tests/test_import_transactions.py`, rewritten for the new format) cover: balance math with the sign taken from `Transaction Type` rather than the (all-positive, in the sample export) amount column; fail-fast rejection of an unrecognized transaction type; and the required-account-name check. Not yet re-verified live against a real MongoDB/browser under the new single-account shape — do that before relying on this in a real session (the original Phase 4/Phase 5 live-verification notes above predate this rewrite and no longer describe the current CSV format or account model).
+Hermetic tests (`tests/test_import_transactions.py`, rewritten for the new format) cover: balance math with the sign taken from `Transaction Type` rather than the (all-positive, in the sample export) amount column; fail-fast rejection of an unrecognized transaction type; the required-account-name check; merchant extraction from `[OP]` rows; and the keyword categorizer across a spread of categories.
+
+### Verified behavior (2026-09-16, live against real MongoDB)
+The single-account shape had never been exercised outside hermetic tests. It now has. A real 220-row bank statement was imported via `db.import_transactions` into a scratch database on a live local MongoDB: 220 rows written, one account created with a computed closing balance, and the result read back **through `mcp_server.dispatch_tool`** — the agent's actual path, not a direct `db` call. `get_spending_summary` returned $3,534.30 over 184 spending transactions across eight categories (Rent $1,300.00, Dining $975.27, Other $667.93, Shopping $220.30, Entertainment $206.82, Groceries $80.93, Healthcare $73.05, Transport $10.00), matching a direct computation over the same file exactly; a `category="Dining"` filter returned $975.27/125, and `search_transactions(category="Rent")` returned the two expected rows. The transfer legs (27 rows) and credits were correctly excluded from spending.
+
+Still **not** verified live: the browser half (Upload → Preview → Dashboard against a running backend), and Phase 7's multi-turn context, which needs a reachable Ollama — the configured host was down at the time of writing.
 
 ---
 
@@ -491,7 +506,7 @@ Three separate gaps, often conflated under "add RAG":
 
 1. **Semantic retrieval.** There is no way to answer "did I buy anything car-related last month?" Nothing matches: no such category exists, and `search_transactions`'s `merchant` filter is an escaped substring regex, not a meaning match. This is the gap the roadmap item is really about, and it needs embeddings — plausibly from Ollama itself (`nomic-embed-text` or similar), since Ollama is already a hard dependency and no new provider or cloud cost would be involved.
 2. **Arbitrary aggregation — the N-tools problem.** `get_spending_summary` groups by `category` and nothing else. No grouping by merchant, no time bucketing, no period-over-period comparison. So "which merchant did I spend the most at?", "what's my average weekly grocery spend?", and "compare August to September" have no path today — and the model can't derive them from `search_transactions` output either, because `SYSTEM_PROMPT` explicitly forbids it from adding up rows itself (correctly — that's the whole reason `get_spending_summary` computes server-side). Each new question shape currently means hand-writing another tool. Model-authored-but-validated query specs are what would collapse that into one.
-3. **Category quality on imported data.** Independent of retrieval strategy, and worth knowing before planning either of the above: `db._classify_import_category` assigns `Transfer` on two description markers (`_TRANSFER_DESCRIPTION_MARKERS`) and `DEFAULT_IMPORT_CATEGORY` (`"Other"`) to everything else. So on a real statement imported via Phase 5, nearly every row is `Other` and `get_spending_summary`'s `by_category` breakdown degenerates to a single bucket. The seeded demo CSVs have real categories; a user's own bank export does not. Any category-driven retrieval feature will look far better in the demo than in real use until this is addressed — by an LLM categorization pass, merchant-level aggregation, or both. This is a known limitation of Phase 5's deliberately narrow heuristic (see Phase 5), not a bug.
+3. **Category quality on imported data — largely addressed, see Phase 5.** `db._classify_import_category` used to assign `Transfer` on two description markers and `"Other"` to everything else, so on a real imported statement nearly every row was `Other` and `get_spending_summary`'s `by_category` degenerated to a single bucket. It now matches a merchant-keyword table and takes the transaction type; on the 220-row statement it was derived from, the breakdown spans eight categories with `Other` at 19% of spending. What remains is the harder half: the table is a hand-built heuristic tuned on one statement, so an unfamiliar merchant set still lands in `Other`, and there is no backfill for data imported before the change. An LLM categorization pass over unmatched rows, or merchant-level aggregation, is the natural next step — but category-driven retrieval is no longer blocked on it.
 
 ### Options for a future phase — not yet decided
 Recorded so the roadmap item can be scoped, deliberately **not** specified as a design:

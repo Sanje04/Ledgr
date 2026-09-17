@@ -203,7 +203,8 @@ tender-ui/
 ### Nice to Have (Future)
 - Clear chat history button
 - Message copy to clipboard
-- Dark/Light mode
+- ✅ Dark/Light mode — shipped with the design-system pass (`utils/theme.ts`,
+  `components/ThemeToggle.tsx`, and the token blocks in `styles/index.css`)
 - Timestamps on messages
 - Typing indicators
 
@@ -241,10 +242,10 @@ tender-ui/
 
 ## TODO
 - ✅ Clarify requirements (DONE)
-- ⏳ **Write clear instructions** (THIS DOCUMENT)
-- ⏳ Get approval to proceed with development
-- ⏳ Build the frontend app
-- ⏳ Connect to backend API (when endpoint is ready)
+- ✅ **Write clear instructions** (THIS DOCUMENT)
+- ✅ Get approval to proceed with development
+- ✅ Build the frontend app
+- ✅ Connect to backend API
 
 ---
 
@@ -379,13 +380,22 @@ range-scoped rows — a 30-day window can't distinguish a cadence from a coincid
 
 ### Known limitations recorded, not fixed
 
-- **Imported rows are almost all `Other`.** `db._classify_import_category` only
-  distinguishes two transfer markers and never assigns the `Income` *category*, so on a real
-  imported statement the **category breakdown degenerates** — the donut is one slice, the
-  legend one row, and the category filter a no-op. Verified against a 220-row statement; the
-  card says so on screen rather than just looking broken. Fixing it client-side was
-  rejected: the assistant reads the same stored field via MCP, so chat and dashboard would
+- **~~Imported rows are almost all `Other`~~ — fixed.** `db._classify_import_category`
+  used to distinguish only two transfer markers and never assign the `Income` *category*,
+  so on a real imported statement the category breakdown degenerated: the donut was one
+  slice, the legend one row, the category filter a no-op. It now matches a merchant-keyword
+  table (`db._CATEGORY_KEYWORDS`) and takes the transaction type, so an unmatched credit is
+  `Income`. On the same 220-row statement the donut went from one slice to eight, with
+  `Other` at 19% of spending — bank fees, laundry and a student-loan debit, which genuinely
+  don't fit the eleven categories. Fixing it client-side stayed rejected for the original
+  reason: the assistant reads the same stored field via MCP, so chat and dashboard would
   visibly disagree.
+
+  **Two caveats.** Import is full-replace with no PATCH endpoint, so data imported before
+  this change keeps its old categories until it's re-imported — there is no backfill. And
+  the keyword table is a heuristic tuned on one Canadian statement; a statement full of
+  unfamiliar merchants will still show a large `Other` slice, which is the honest outcome
+  rather than a guessed one.
 
   The rest of the dashboard holds up better than that implies, which was confirmed on the
   same import rather than assumed. The income and net KPIs are **not** affected — `isIncome`
@@ -398,8 +408,10 @@ range-scoped rows — a 30-day window can't distinguish a cadence from a coincid
   and caps at 500, newest-first, with no total count. The table shows a notice when exactly
   500 rows come back.
 - **Mock mode can't reach Upload or Preview** (the mock returns 3 transactions and
-  `importTransactionsCsv` throws without `VITE_TRANSACTIONS_API_URL`). Not worked around
-  with a third env var; exercise those screens against a real backend.
+  `importTransactionsCsv` throws without `VITE_TRANSACTIONS_API_URL`). Exercise those
+  screens against a real backend. Mock mode is now opt-in via `VITE_USE_MOCK_DATA=true`
+  rather than inferred from an unset URL — previously a misconfigured deploy fell back to
+  fake accounts silently; it now shows `AppError`.
 
 ---
 
