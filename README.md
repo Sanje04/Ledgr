@@ -1,5 +1,7 @@
 # Tender — Self-Hosted AI Chatbot
 
+[![CI](https://github.com/Sanje04/Ledgr/actions/workflows/ci.yml/badge.svg)](https://github.com/Sanje04/Ledgr/actions/workflows/ci.yml)
+
 A full-stack chat application with a React/TypeScript frontend and a Python/FastAPI backend, designed to connect to a **locally-hosted LLM (via Ollama)** instead of a paid third-party API. Built as a hands-on exercise in full-stack integration, API contract design, and running open-weight models on your own hardware.
 
 ## Why this project

@@ -1,0 +1,64 @@
+# Runs the two test suites that already exist in the repo. Mirrors stages 2-3
+# of the Jenkins pipeline designed in docs/design.md, so the two stay
+# comparable if that proposal is ever built.
+#
+# Neither job needs Ollama, MongoDB, or the MCP server: the backend suite is
+# hermetic apart from the one test marked live_llm (deselected below), and
+# mcp_client discovery is stubbed out by autouse fixtures. See backend/README.md.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# A new push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        working-directory: backend
+        run: pytest -q -m "not live_llm"
+
+  frontend:
+    name: Frontend (tsc + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+
+      # "lint" is tsc --noEmit -- there is no ESLint config in this repo.
+      - name: Typecheck
+        working-directory: ui
+        run: npm run lint
+
+      - name: Run tests
+        working-directory: ui
+        run: npm test
