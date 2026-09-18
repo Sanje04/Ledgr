@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: tender
+spec:
+  # Load-bearing. main.py's rate limiter is a per-process dict, so more replicas
+  # silently multiply the effective limit. See CLAUDE.md.
+  replicas: 1
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      containers:
+        - name: backend
+          image: tender-backend:dev      # Jenkins overwrites this tag per build
+          imagePullPolicy: IfNotPresent  # required for locally loaded images
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: { name: tender-config }
+            - secretRef:    { name: tender-secrets }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: tender
+spec:
+  selector: { app: backend }
+  ports:
+    - port: 8000
+      targetPort: 8000

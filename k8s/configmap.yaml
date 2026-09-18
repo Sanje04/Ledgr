@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tender-config
+  namespace: tender
+data:
+  OLLAMA_BASE_URL: "http://host.minikube.internal:11434"
+  # Must name a model you have actually pulled -- the one you saw in lab 1.7.
+  OLLAMA_MODEL: "gemma4:latest"
+  MONGODB_DB_NAME: "ag_ai"
+  MONGODB_SERVER_SELECTION_TIMEOUT_MS: "5000"
+  MAX_HISTORY_TURNS: "5"
+  FORCE_HTTPS: "false"
+  ALLOWED_ORIGINS: "*"
+  # The backend finds the tool server by Service name. Because the Service below
+  # is named `mcp`, this value is identical to the docker-compose one.
+  MCP_SERVER_URL: "http://mcp:9000/mcp"
+  # 0.0.0.0 so the mcp container accepts connections from the backend pod.
+  MCP_HOST: "0.0.0.0"
+  MCP_PORT: "9000"
