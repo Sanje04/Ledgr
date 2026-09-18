@@ -1,0 +1,6 @@
+# Holds the Atlas connection string and the Tailscale OAuth secret.
+deploy.env
+
+# Rendered copies of backend-app.yaml.template, in case one is ever written here
+# instead of to a temp directory -- it contains those same secrets inlined.
+*.rendered.yaml

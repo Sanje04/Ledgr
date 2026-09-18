@@ -1,0 +1,55 @@
+# Build context for the root Dockerfile (the all-in-one image). The context is
+# the whole repository here, unlike backend/ or ui/ for the split images, so this
+# file is what keeps it from including several hundred megabytes of things the
+# image must not contain.
+
+# Dependency trees -- reinstalled inside the image, and platform-specific:
+# a Windows-built .venv or node_modules is not merely wasteful here, it is wrong.
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+
+# Local build output. The image builds the frontend itself.
+ui/dist
+
+# Secrets. Never in an image layer, where they survive even if a later layer
+# deletes them.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.production.example
+infra/deploy.env
+
+# Version control and CI
+.git
+.gitignore
+.gitattributes
+.github
+
+# Editor/assistant working directories
+.claude
+.kiro
+skills
+
+# Test and tooling artifacts
+**/.pytest_cache
+**/.mypy_cache
+backend/tests
+backend/conftest.py
+backend/pytest.ini
+backend/requirements-dev.txt
+
+# Demo-only data and the seed script: deliberately not shipped, matching
+# backend/Dockerfile (see backend/specs.md Phase 5). A deployment loads real
+# data through the app's CSV import instead.
+backend/data
+backend/scripts
+statement.csv
+test_statement.csv
+
+# Deployment topologies and docs -- not needed at runtime
+docs
+infra
+*.md
+docker-compose.yml

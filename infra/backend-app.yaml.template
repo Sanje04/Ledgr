@@ -1,0 +1,154 @@
+﻿# Azure Container App definition for the `backend` service (AZURE_DEPLOYMENT.md).
+#
+# This one app is defined in YAML while `mcp` and `frontend` are created from
+# plain `az containerapp create` flags, for one reason: it holds two containers
+# in a single replica, and the CLI's flag interface can only express one.
+#
+# The double-underscore-delimited placeholders below are substituted by
+# infra/deploy.ps1 / deploy.sh, which render this to a temporary file outside the
+# repository, apply it, and delete it -- because the rendered version contains the
+# MongoDB connection string and the Tailscale OAuth secret in cleartext. Never
+# commit a rendered copy.
+#
+# Both scripts refuse to deploy if any placeholder survives substitution, so this
+# comment deliberately describes them rather than spelling one out; a literal
+# example here would trip that check on every run.
+#
+# Every substituted value is double-quoted. That is not cosmetic: an unquoted
+# ALLOWED_ORIGINS of `*` parses as a YAML alias and fails the whole document, and
+# an unquoted connection string is one stray `#` away from being truncated into a
+# comment. Values containing a literal `"` or `\` would still need escaping, which
+# neither a MongoDB URI (percent-encoded by specification) nor a Tailscale OAuth
+# credential can contain.
+
+location: "__LOCATION__"
+type: Microsoft.App/containerApps
+properties:
+  managedEnvironmentId: "__ENVIRONMENT_ID__"
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      # Internal, matching docker-compose.yml's `expose` rather than `ports:`:
+      # nginx in the frontend app is the only thing that should ever reach this,
+      # and publishing it would put an unauthenticated /api/transactions/import
+      # on the public internet under a second hostname.
+      external: false
+      # Ingress listens on 80/443 regardless and forwards to this port, so
+      # callers use http://<fqdn> with no port -- see BACKEND_ORIGIN in deploy.
+      targetPort: 8000
+      transport: auto
+      # Plain HTTP inside the environment. TLS terminates at ingress, which is
+      # the same assumption FORCE_HTTPS=false already encodes.
+      allowInsecure: true
+    secrets:
+      - name: mongodb-uri
+        value: "__MONGODB_URI__"
+      - name: ts-client-id
+        value: "__TS_CLIENT_ID__"
+      - name: ts-client-secret
+        value: "__TS_CLIENT_SECRET__"
+  template:
+    containers:
+      - name: backend
+        image: "__BACKEND_IMAGE__"
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+        env:
+          - name: MONGODB_URI
+            secretRef: mongodb-uri
+          - name: MONGODB_DB_NAME
+            value: "__MONGODB_DB_NAME__"
+          # Fail fast on an unreachable Atlas rather than hanging for the
+          # driver's 30s default, same reasoning as backend/db.py's comment.
+          - name: MONGODB_SERVER_SELECTION_TIMEOUT_MS
+            value: "5000"
+          # The home Ollama host's MagicDNS name. Resolved by tailscaled below,
+          # not by this container -- see HTTP_PROXY.
+          - name: OLLAMA_BASE_URL
+            value: "__OLLAMA_BASE_URL__"
+          - name: OLLAMA_MODEL
+            value: "__OLLAMA_MODEL__"
+          - name: MAX_HISTORY_TURNS
+            value: "__MAX_HISTORY_TURNS__"
+          # False on purpose: ingress already terminated TLS and forwards plain
+          # HTTP here, so redirecting would loop the platform's own traffic.
+          - name: FORCE_HTTPS
+            value: "false"
+          # Starts wide open because the frontend's hostname does not exist yet;
+          # the deploy script narrows this to that hostname once it does.
+          - name: ALLOWED_ORIGINS
+            value: "__ALLOWED_ORIGINS__"
+          # The mcp app's internal ingress FQDN, port 80 (not 9000 -- ingress
+          # does that mapping). If mcp is scaled to zero, the first request after
+          # idle may find discovery still cold and answer with no tools; the next
+          # one picks them up. That is the documented fail-soft path, not a bug.
+          - name: MCP_SERVER_URL
+            value: "__MCP_SERVER_URL__"
+          # The whole tunnel, in one variable. agent.py uses a bare
+          # httpx.AsyncClient(), which honours proxy env vars, so Ollama traffic
+          # goes out over the tailnet with no application code aware of it.
+          # localhost works because containers in one Container App replica
+          # share a network namespace.
+          - name: HTTP_PROXY
+            value: http://localhost:1055
+          # Mandatory, not decorative: without it this same proxy would swallow
+          # the MCP calls above and send them down the tunnel. That failure is
+          # silent (chat answers, minus tools), which is why it is pinned here.
+          - name: NO_PROXY
+            value: localhost,127.0.0.1,.azurecontainerapps.io
+        probes:
+          # Points at /api/health, which deliberately touches no dependency, so a
+          # Mongo or Ollama outage cannot get a healthy container restarted.
+          - type: Liveness
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+
+      # Sidecar, not its own app: the proxy must be reachable on localhost, and
+      # it must scale and restart in lockstep with the process using it.
+      - name: tailscale
+        image: tailscale/tailscale:stable
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+        env:
+          # OAuth client, not an auth key: auth keys expire within 90 days and
+          # would take the deployment down silently months later. Nodes
+          # registered with an OAuth secret are also ephemeral by default, so the
+          # routine scale-to-zero restarts don't accumulate dead tailnet nodes.
+          - name: TS_CLIENT_ID
+            secretRef: ts-client-id
+          - name: TS_CLIENT_SECRET
+            secretRef: ts-client-secret
+          # Required when authenticating with an OAuth client: the tag is what
+          # the tailnet ACL grants access to the Ollama host through.
+          - name: TS_EXTRA_ARGS
+            value: --advertise-tags=tag:tender-backend
+          # Userspace networking needs no /dev/net/tun and no NET_ADMIN, neither
+          # of which a managed container platform grants. This is the default,
+          # stated explicitly because it is load-bearing here.
+          - name: TS_USERSPACE
+            value: "true"
+          # 127.0.0.1, unlike docker-compose.yml's 0.0.0.0: there the sidecar is a
+          # separate container reached by service name, here it shares this
+          # replica's loopback, so binding wider would expose the proxy for no gain.
+          - name: TS_OUTBOUND_HTTP_PROXY_LISTEN
+            value: 127.0.0.1:1055
+          - name: TS_HOSTNAME
+            value: "__TS_HOSTNAME__"
+    scale:
+      # Zero, so an idle deployment consumes none of the monthly free grant.
+      # The cost is a cold start on the first request after idle.
+      minReplicas: 0
+      # One, because main.py's rate limiter is a module-level dict: per-replica
+      # state. A second replica would silently double the effective limit.
+      maxReplicas: 1
+      rules:
+        - name: http-traffic
+          http:
+            metadata:
+              concurrentRequests: "10"

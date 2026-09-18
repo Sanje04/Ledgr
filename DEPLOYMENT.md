@@ -1,11 +1,16 @@
 # Deployment
 
+> For a public HTTPS URL on Azure's free tier, with Ollama still on your own
+> machine behind a Tailscale tunnel, see [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)
+> instead. This document is the single-host `docker compose` topology.
+
 This covers running Tender via `docker-compose.yml` on a self-hosted machine,
 as opposed to the manual `.venv`/`npm run dev` setup in [README.md](README.md#getting-started).
 It builds and runs three containers — the FastAPI backend, the MCP tool server
 that hosts the agent's six tools (`backend/mcp_server.py`, see
 `backend/specs.md` Phase 8), and the built React frontend served by nginx
-(which also reverse-proxies `/api/` to the backend, see `ui/nginx.conf`) — and
+(which also reverse-proxies `/api/` to the backend, see
+`ui/nginx.conf.template`, rendered at container start from `BACKEND_ORIGIN`) — and
 expects MongoDB and Ollama to keep running outside Docker, the same
 external-service roles they already have in local dev (see `CLAUDE.md`).
 

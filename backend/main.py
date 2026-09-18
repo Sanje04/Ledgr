@@ -82,10 +82,27 @@ async def on_startup() -> None:
     await mcp_client.discover_tools()
 
 
-# Enable CORS for local dev so the Vite frontend (different port) can call this API.
+def _load_allowed_origins() -> list[str]:
+    """Origins permitted by CORS, from a comma-separated ALLOWED_ORIGINS.
+
+    Defaults to "*" so local dev (Vite on a different port) keeps working with no
+    .env change. A real deployment should pin this to the one frontend hostname:
+    because nginx proxies /api/ to this backend (ui/nginx.conf.template), traffic is
+    same-origin there and needs no wildcard -- see AZURE_DEPLOYMENT.md.
+    """
+    raw = os.getenv("ALLOWED_ORIGINS", "*")
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    if not origins:
+        logger.warning("ALLOWED_ORIGINS=%r contained no usable values; falling back to '*'", raw)
+        return ["*"]
+    return origins
+
+
+# Enable CORS so a cross-origin frontend (Vite on another port in dev) can call
+# this API. Wide open by default, narrowed by ALLOWED_ORIGINS in deployment.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_load_allowed_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -101,6 +118,10 @@ class ChatResponse(BaseModel):
 
 class ChatError(BaseModel):
     error: str
+
+
+class HealthResponse(BaseModel):
+    status: str
 
 
 class AccountOut(BaseModel):
@@ -141,6 +162,22 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
             error=f"Invalid request: 'message' must be a non-empty string of at most {MAX_MESSAGE_LENGTH} characters."
         ).model_dump(),
     )
+
+
+@app.get("/api/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    """Liveness probe for the container platform (see AZURE_DEPLOYMENT.md).
+
+    Deliberately touches nothing: no MongoDB, no Ollama, no MCP server. Those are
+    all external dependencies the app is designed to outlive (startup fails soft on
+    each -- see on_startup above), so letting them fail this probe would have the
+    platform restart or drain a container that is serving correctly. This reports
+    "this process is up", not "the whole system is healthy".
+
+    Outside the rate limiter by construction: the middleware matches /api/chat only,
+    so probe traffic can never consume a client's chat budget.
+    """
+    return HealthResponse(status="ok")
 
 
 @app.post("/api/chat", response_model=ChatResponse)

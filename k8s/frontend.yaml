@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: tender
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: tender-frontend:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          env:
+            # ui/nginx.conf.template is rendered by envsubst at container start,
+            # so the backend address is runtime config, not baked into the image.
+            #
+            # Must be the FULLY-QUALIFIED Service name here, overriding the
+            # image's own default. The template proxies through a *variable*
+            # upstream (so a scaled-to-zero backend doesn't stop nginx booting),
+            # which requires an explicit `resolver` -- and nginx's resolver does
+            # not apply /etc/resolv.conf's search domains. A bare `backend` is a
+            # single-label name that CoreDNS answers with SERVFAIL, so every
+            # /api/ request 502s and the UI shows "Can't reach the backend".
+            # curl/wget in this same pod still work (the libc resolver does
+            # expand the search list), which makes it look like an app bug
+            # rather than a DNS one. The image default (http://backend:8000) is
+            # correct for docker-compose's embedded DNS, not for Kubernetes.
+            - name: BACKEND_ORIGIN
+              value: "http://backend.tender.svc.cluster.local:8000"
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: tender
+spec:
+  type: NodePort
+  selector: { app: frontend }
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
