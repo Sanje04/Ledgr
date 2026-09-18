@@ -29,7 +29,9 @@ pipeline {
     stage('Frontend tests') {
       steps {
         dir('ui') {
-          sh 'npm ci'
+          // npm install, not npm ci: the Windows-generated lockfile fails
+          // npm ci on Linux. See the comment in .github/workflows/ci.yml.
+          sh 'npm install'
           sh 'npx tsc --noEmit'
           sh 'npm run test -- --run'
         }
@@ -57,6 +59,7 @@ pipeline {
 
     stage('Deploy') {
       steps {
+        script { env.DEPLOYED = 'true' }
         sh "kubectl apply -n ${NS} -f k8s/"
         sh "kubectl set image -n ${NS} deploy/mcp      mcp=tender-mcp:${TAG}"
         sh "kubectl set image -n ${NS} deploy/backend  backend=tender-backend:${TAG}"
@@ -82,9 +85,15 @@ pipeline {
     failure {
       // set image has already been applied by the time Verify fails, so the
       // broken version is live. Undo is what actually restores service.
-      sh "kubectl rollout undo -n ${NS} deploy/backend  || true"
-      sh "kubectl rollout undo -n ${NS} deploy/mcp      || true"
-      sh "kubectl rollout undo -n ${NS} deploy/frontend || true"
+      // A failure before Deploy has nothing to undo; undoing then would roll
+      // a healthy deployment back to an older revision.
+      script {
+        if (env.DEPLOYED == 'true') {
+          sh "kubectl rollout undo -n ${NS} deploy/backend  || true"
+          sh "kubectl rollout undo -n ${NS} deploy/mcp      || true"
+          sh "kubectl rollout undo -n ${NS} deploy/frontend || true"
+        }
+      }
     }
     always {
       sh "docker image prune -f --filter 'until=168h' || true"
